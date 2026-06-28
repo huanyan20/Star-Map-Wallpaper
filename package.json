@@ -1,0 +1,15 @@
+{
+  "name": "star-lively-wallpaper",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:assets": "node scripts/build_assets.js",
+    "serve": "npx http-server . -p 4173 -c-1",
+    "test:smoke": "node test-puppeteer.js"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "msdf-bmfont-xml": "^2.8.0",
+    "puppeteer": "^24.12.1"
+  }
+}
