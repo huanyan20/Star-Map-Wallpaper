@@ -1,4 +1,4 @@
-﻿function initWebGL() {
+function initWebGL() {
     const webglCanvas = document.createElement('canvas');
     webglCanvas.id = 'webgl-canvas';
     webglCanvas.style.position = 'absolute';
@@ -36,5 +36,6 @@
 
     setupShaders();
     setupStars();
+    setupMoon();
 }
 window.initWebGL = initWebGL;
