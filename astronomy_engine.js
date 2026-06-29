@@ -41,66 +41,21 @@ function raDecToAltAz(ra_h, dec_deg, lst_deg){
   return {alt, az};
 }
 
-/* === SUN POSITION (Meeus Ch.25 low precision) === */
+/* === SUN POSITION (VSOP87 High Precision) === */
 function getSunRaDec(jd){
-  const n  = jd - 2451545.0;
-  const L  = ((280.460 + 0.9856474*n) % 360 + 360) % 360;
-  const g  = toRad(((357.528 + 0.9856003*n) % 360 + 360) % 360);
-  const lambda = toRad(L + 1.915*Math.sin(g) + 0.020*Math.sin(2*g));
-  const eps = toRad(23.439 - 0.0000004*n);
-  const ra  = (Math.atan2(Math.cos(eps)*Math.sin(lambda), Math.cos(lambda)) * 180/Math.PI + 360) % 360;
-  const dec = Math.asin(Math.sin(eps)*Math.sin(lambda)) * 180/Math.PI;
-  return { ra: ra/15, dec };
+  const date = new Date((jd - 2440587.5) * 86400000);
+  const obs = new Astronomy.Observer(LAT_DEG, LON_DEG, 0);
+  const sunEq = Astronomy.Equator('Sun', date, obs, true, true);
+  return { ra: sunEq.ra, dec: sunEq.dec };
 }
 
-/* === MOON POSITION (Meeus Ch.47 simplified) === */
+/* === MOON POSITION (High Precision) === */
 function getMoonRaDec(jd){
-  const T  = (jd - 2451545.0) / 36525.0;
-  // Fundamental arguments
-  const Lp = toRad(((218.3164477 + 481267.88123421*T) % 360 + 360) % 360);
-  const D  = toRad(((297.8501921 + 445267.1114034*T) % 360 + 360) % 360);
-  const M  = toRad(((357.5291092 +  35999.0502909*T) % 360 + 360) % 360);
-  const Mp = toRad(((134.9633964 + 477198.8675055*T) % 360 + 360) % 360);
-  const F  = toRad(((93.2720950  + 483202.0175233*T) % 360 + 360) % 360);
-  // Longitude corrections (degrees)
-  let lon = toDeg(Lp)
-    + 6.289*Math.sin(Mp)
-    - 1.274*Math.sin(2*D - Mp)
-    + 0.658*Math.sin(2*D)
-    - 0.186*Math.sin(M)
-    - 0.059*Math.sin(2*Mp - 2*D)
-    - 0.057*Math.sin(Mp - 2*D + M)
-    + 0.053*Math.sin(Mp + 2*D)
-    + 0.046*Math.sin(2*D - M)
-    + 0.041*Math.sin(Mp - M)
-    - 0.035*Math.sin(D)
-    - 0.031*Math.sin(Mp + M)
-    - 0.015*Math.sin(2*F - 2*D)
-    + 0.011*Math.sin(Mp - 4*D);
-  // Latitude corrections
-  let lat = 5.128*Math.sin(F)
-    + 0.280*Math.sin(Mp + F)
-    + 0.277*Math.sin(Mp - F)
-    + 0.173*Math.sin(F - 2*D)
-    + 0.055*Math.sin(2*D + F - Mp)
-    - 0.046*Math.sin(2*D - F - Mp)
-    + 0.033*Math.sin(F + 2*D)
-    + 0.017*Math.sin(2*Mp + F);
-  const lonRad = toRad(lon), latRad = toRad(lat);
-  const eps = toRad(23.439 - 0.0000004*(jd-2451545.0));
-  const ra  = (Math.atan2(
-    Math.sin(lonRad)*Math.cos(eps) - Math.tan(latRad)*Math.sin(eps),
-    Math.cos(lonRad)
-  ) * 180/Math.PI + 360) % 360;
-  const dec = Math.asin(
-    Math.sin(latRad)*Math.cos(eps) +
-    Math.cos(latRad)*Math.sin(eps)*Math.sin(lonRad)
-  ) * 180/Math.PI;
-  // Moon phase angle (0=new, 0.5=full, 1=new again)
-  const sunInfo = getSunRaDec(jd);
-  const sunLon = ((sunInfo.ra*15 + 180) % 360);
-  const phase = (((lon - sunLon) % 360) + 360) % 360 / 360; // 0=new, 0.5=full
-  return { ra: ra/15, dec, phase };
+  const date = new Date((jd - 2440587.5) * 86400000);
+  const obs = new Astronomy.Observer(LAT_DEG, LON_DEG, 0);
+  const moonEq = Astronomy.Equator('Moon', date, obs, true, true);
+  const illum = Astronomy.Illumination('Moon', date);
+  return { ra: moonEq.ra, dec: moonEq.dec, phase: illum.phase_fraction };
 }
 
 /* === MILKY WAY COORDS === */

@@ -202,11 +202,8 @@ function setupShaders() {
         varying float vAlpha;
         varying float vDepth;
         varying float vMag;
-
-        // Pseudo-random hash
-        float hash(vec2 p) {
-            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-        }
+        varying float vAirMass;
+        varying vec2 vPosHash;
 
         void main() {
             // 1. Equatorial to Horizontal
@@ -222,34 +219,26 @@ function setupShaders() {
                 return;
             }
             
-            // Atmospheric Extinction (Air mass X approx 1/sin(Alt))
+            // Air mass approx 1/sin(Alt)
             float alt = max(0.02, sz);
             float airMass = 1.0 / alt;
-            float extinction = exp(-0.15 * airMass); // k = 0.15 mag/airmass roughly
-            
-            // Scintillation (Twinkling)
-            float phase = hash(position.xy);
-            float twinkleAmp = min(0.8, 0.1 + 0.05 * airMass); 
-            float twinkle = 1.0 + twinkleAmp * sin(time * (5.0 + phase * 10.0) + phase * 6.28);
+            vAirMass = airMass;
+            vPosHash = position.xy;
             
             // Perceived magnitude after atmospheric extinction
             float perceivedMag = starMag + 0.15 * airMass; 
             
             // Map magnitude to visual intensity (monitor display compensation)
-            // To simulate a "zero light pollution" sky on a monitor, we raise the brightness floor.
-            // Mag -1.5 -> ~1.0, Mag 6.5 -> ~0.4
             float baseIntensity = clamp(1.0 - (perceivedMag + 1.5) / 13.0, 0.35, 1.0); 
-            float visualIntensity = baseIntensity * twinkle;
             
             vColor = starColor;
             vMag = starMag;
             
-            // Alpha mapped to visual intensity
-            vAlpha = visualIntensity * clamp(starVisibility * 1.5, 0.0, 1.0);
+            // Alpha mapped to visual intensity (twinkle is applied in fragment shader)
+            vAlpha = baseIntensity * clamp(starVisibility * 1.5, 0.0, 1.0);
             
             // Base size + strong halo for bright stars
-            // Faint stars are given a minimum size of 1.2px to remain distinctly visible
-            float ptSize = max(1.2, visualIntensity * 3.5);
+            float ptSize = max(1.2, baseIntensity * 3.5);
             if (starMag < 3.0) {
                 ptSize += pow(max(0.0, 3.0 - starMag), 1.6) * 4.0; 
             }
@@ -287,16 +276,40 @@ function setupShaders() {
     `;
 
     const fragmentShader = `
+        uniform float time;
         varying vec3 vColor;
         varying float vAlpha;
         varying float vDepth;
         varying float vMag;
+        varying float vAirMass;
+        varying vec2 vPosHash;
+
+        float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+
+        float noise(vec2 p, float t) {
+            float phase = hash(p);
+            // fBm-like oscillation
+            float n1 = sin(t * (5.0 + phase * 10.0) + phase * 6.28);
+            float n2 = sin(t * (11.0 + phase * 15.0) - phase * 3.14) * 0.5;
+            return (n1 + n2) / 1.5;
+        }
+
         void main() {
             if (vDepth < -0.4) discard;
             
             vec2 pt = gl_PointCoord - vec2(0.5);
             float r = length(pt);
             if (r > 0.5) discard;
+            
+            // Scintillation
+            float twinkleAmp = min(0.8, 0.1 + 0.05 * vAirMass); 
+            float twinkle = 1.0 + twinkleAmp * noise(vPosHash, time);
+            
+            // Atmospheric Reddening
+            vec3 extinctionColor = exp(-vec3(0.12, 0.16, 0.24) * vAirMass);
+            vec3 finalColor = vColor * extinctionColor;
             
             // Star core
             float core = smoothstep(0.25, 0.05, r);
@@ -307,8 +320,8 @@ function setupShaders() {
                 halo = smoothstep(0.5, 0.1, r) * 0.4;
             }
             
-            float alpha = max(core, halo) * vAlpha;
-            gl_FragColor = vec4(vColor * alpha, alpha);
+            float alpha = max(core, halo) * vAlpha * twinkle;
+            gl_FragColor = vec4(finalColor * alpha, alpha);
         }
     `;
 
