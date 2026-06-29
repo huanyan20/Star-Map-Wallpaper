@@ -538,6 +538,7 @@ function setupShaders() {
         uniform float focalLen;
         uniform float time;
         uniform float starVisibility;
+        uniform float dpr;
         
         attribute float starMag;
         attribute vec3 starColor;
@@ -596,17 +597,16 @@ function setupShaders() {
             
             float rx = cos(lookAz);
             float ry = -sin(lookAz);
-            float rz = 0.0;
             
-            float ux = ry * lz - rz * ly;
-            float uy = rz * lx - rx * lz;
-            float uz = rx * ly - ry * lx;
+            float ux = ry * lz;
+            float uy = -rx * lz;
+            float uz = cos(lookEl);
             
             // 3. Stereographic Projection
             float depth = sx*lx + sy*ly + sz*lz;
             vDepth = depth;
             
-            float pr = sx*rx + sy*ry + sz*rz;
+            float pr = sx*rx + sy*ry;
             float pu = sx*ux + sy*uy + sz*uz;
             
             float k = 2.0 / (1.0 + depth);
@@ -616,8 +616,7 @@ function setupShaders() {
             gl_Position = projectionMatrix * modelViewMatrix * vec4(px, py, 0.0, 1.0);
             
             float depthAtten = smoothstep(-0.4, 0.0, depth);
-            float DPR = ${(window.devicePixelRatio || 1.0).toFixed(1)};
-            float exactPtSize = ptSize * depthAtten * DPR;
+            float exactPtSize = ptSize * depthAtten * dpr;
             
             // Pad point size to prevent hardware clipping and integer-snapping flickering
             float paddedSize = ceil(exactPtSize) + 4.0;
@@ -730,7 +729,8 @@ function setupShaders() {
             lookEl: { value: 0 },
             focalLen: { value: 500 },
             time: { value: 0 },
-            starVisibility: { value: 1.0 }
+            starVisibility: { value: 1.0 },
+            dpr: { value: window.devicePixelRatio || 1.0 }
         },
         transparent: true,
         depthWrite: false,
@@ -1484,14 +1484,13 @@ window.setupMoon = function() {
             
             float rx = cos(lookAz);
             float ry = -sin(lookAz);
-            float rz = 0.0;
             
-            float ux = ry * lz - rz * ly;
-            float uy = rz * lx - rx * lz;
-            float uz = rx * ly - ry * lx;
+            float ux = ry * lz;
+            float uy = -rx * lz;
+            float uz = cos(lookEl);
             
             vec3 viewFwd = vec3(lx, ly, lz);
-            vec3 viewRight = vec3(rx, ry, rz);
+            vec3 viewRight = vec3(rx, ry, 0.0);
             vec3 viewUp = vec3(ux, uy, uz);
             
             float p_fwd = dot(dir, viewFwd);
@@ -1580,6 +1579,7 @@ function renderWebGL(ts, lst_deg, starVisibility, topRGB, midRGB, horRGB, hy, sc
     starsMaterial.uniforms.focalLen.value = focalLen();
     starsMaterial.uniforms.time.value = ts / 1000.0;
     starsMaterial.uniforms.starVisibility.value = typeof starVisibility !== "undefined" ? starVisibility : 1.0;
+    starsMaterial.uniforms.dpr.value = window.devicePixelRatio || 1.0;
 
     if (window.skyMaterial && topRGB && midRGB && horRGB) {
         window.skyMaterial.uniforms.topRGB.value.set(topRGB[0] / 255, topRGB[1] / 255, topRGB[2] / 255);
