@@ -1,0 +1,1350 @@
+
+    window.onerror = function (msg, src, lineno, colno, error) {
+      const errDiv = document.createElement("div");
+      errDiv.style.position = "absolute";
+      errDiv.style.top = "10px";
+      errDiv.style.left = "10px";
+      errDiv.style.color = "red";
+      errDiv.style.backgroundColor = "rgba(0,0,0,0.8)";
+      errDiv.style.padding = "20px";
+      errDiv.style.zIndex = "999999";
+      errDiv.style.fontFamily = "monospace";
+      errDiv.style.fontSize = "20px";
+      errDiv.style.maxWidth = "80vw";
+      errDiv.innerText = "ERROR: " + msg + "\nLINE: " + lineno + "\n" + (error && error.stack ? error.stack : "");
+      document.body.appendChild(errDiv);
+    };
+    window.addEventListener("unhandledrejection", function (event) {
+      const errDiv = document.createElement("div");
+      errDiv.style.position = "absolute";
+      errDiv.style.top = "150px";
+      errDiv.style.left = "10px";
+      errDiv.style.color = "orange";
+      errDiv.style.backgroundColor = "rgba(0,0,0,0.8)";
+      errDiv.style.padding = "20px";
+      errDiv.style.zIndex = "999999";
+      errDiv.style.fontFamily = "monospace";
+      errDiv.style.fontSize = "20px";
+      errDiv.style.maxWidth = "80vw";
+      errDiv.innerText = "PROMISE REJECTION: " + (event.reason && event.reason.stack ? event.reason.stack : event.reason);
+      document.body.appendChild(errDiv);
+    });
+    'use strict';
+
+    /* === PERSPECTIVE PROJECTION STATE === */
+    let lookAz = Math.PI;       // direction looking: 0=N, π=S (radians)
+    let lookEl = toRad(25);     // elevation of view centre
+    let hFOV = toRad(90);     // horizontal field of view
+
+    /* === CACHED CAMERA VECTORS === */
+    let _camLx = 0, _camLy = 1, _camLz = 0;
+    let _camRx = 1, _camRy = 0;
+    let _camUx = 0, _camUy = 0, _camUz = 1;
+    let _camF = 500;
+
+    function updateCamCache() {
+      _camLx = Math.sin(lookAz) * Math.cos(lookEl);
+      _camLy = Math.cos(lookAz) * Math.cos(lookEl);
+      _camLz = Math.sin(lookEl);
+      _camRx = Math.cos(lookAz);
+      _camRy = -Math.sin(lookAz);
+      _camUx = _camRy * _camLz;
+      _camUy = -_camRx * _camLz;
+      _camUz = _camRx * _camLy - _camRy * _camLx;
+      _camF = focalLen();
+    }
+
+    function altAzToXY(alt_rad, az_rad) {
+      if (alt_rad < toRad(-10)) return null;
+      const sx = Math.sin(az_rad) * Math.cos(alt_rad);
+      const sy = Math.cos(az_rad) * Math.cos(alt_rad);
+      const sz = Math.sin(alt_rad);
+      const depth = sx * _camLx + sy * _camLy + sz * _camLz;
+      if (depth < -0.5) return null;
+      const pr = sx * _camRx + sy * _camRy;
+      const pu = sx * _camUx + sy * _camUy + sz * _camUz;
+      const k = 2 / (1 + depth);
+      const px = CX + pr * k * _camF;
+      const py = CY - pu * k * _camF;
+      if (px < -W * 2 || px > W * 3 || py < -H * 2 || py > H * 3) return null;
+      return { x: px, y: py };
+    }
+
+    const moonImg = new Image();
+    moonImg.src = 'moon.png';
+
+
+    /* === STAR LOOKUP === */
+    const STAR_BY_CN = {};
+    STARS.forEach(s => { STAR_BY_CN[s.cn] = s; });
+
+    /* === COLORS === */
+    function specColor(sp) {
+      const c = (sp || '?')[0];
+      if (c === 'O') return '#b0c8ff';
+      if (c === 'B') return '#d0e8ff';
+      if (c === 'A') return '#f8faff';
+      if (c === 'F') return '#fff8e8';
+      if (c === 'G') return '#ffe870';
+      if (c === 'K') return '#ffaa40';
+      if (c === 'M') return '#ff6030';
+      return '#d0e4ff';
+    }
+    function magToRadius(mag) { return Math.max(0.25, 4.2 - mag * 0.75); }
+    function magToAlpha(mag) { return Math.max(0.08, Math.min(1.0, 1.15 - mag * 0.12)); }
+
+    /* === GLOW CACHE — OffscreenCanvas pre-rendered halos === */
+    const GLOW_CACHE = {};
+    function getGlowCanvas(r, rgbStr, alpha, mag, baseRad) {
+      const key = mag !== undefined ? `${Math.round(r)}_${rgbStr}_${alpha.toFixed(2)}_${mag.toFixed(1)}` : `${Math.round(r)}_${rgbStr}_${alpha.toFixed(2)}`;
+      if (GLOW_CACHE[key]) return GLOW_CACHE[key];
+
+      let sz = Math.ceil(r * 2) + 2;
+      let spikeLen = 0;
+      if (mag !== undefined && mag <= 1 && baseRad) {
+        spikeLen = baseRad * 15; // 長度與 magToRadius 成正比
+        sz = Math.ceil(Math.max(r, spikeLen) * 2) + 2;
+      }
+
+      const oc = new OffscreenCanvas(sz, sz);
+      const ox = oc.getContext('2d');
+      const cx = sz / 2, cy = sz / 2;
+
+      const g = ox.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(${rgbStr},${alpha})`);
+      g.addColorStop(0.4, `rgba(${rgbStr},${(alpha * 0.3).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ox.fillStyle = g;
+      ox.beginPath(); ox.arc(cx, cy, r, 0, Math.PI * 2); ox.fill();
+
+      if (spikeLen > 0) {
+        ox.globalCompositeOperation = 'lighter';
+        ox.lineWidth = 1.0;
+        const sGrad = ox.createRadialGradient(cx, cy, 0, cx, cy, spikeLen);
+        sGrad.addColorStop(0, `rgba(${rgbStr},${alpha * 1.5})`);
+        sGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ox.strokeStyle = sGrad;
+
+        ox.beginPath();
+        ox.moveTo(cx - spikeLen, cy - spikeLen);
+        ox.lineTo(cx + spikeLen, cy + spikeLen);
+        ox.moveTo(cx - spikeLen, cy + spikeLen);
+        ox.lineTo(cx + spikeLen, cy - spikeLen);
+        ox.stroke();
+
+        ox.globalCompositeOperation = 'source-over';
+      }
+
+      GLOW_CACHE[key] = oc;
+      return oc;
+    }
+
+    /* === CANVAS === */
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let W, H, CX, CY, R;
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      canvas.style.width = W + 'px';
+      canvas.style.height = H + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      CX = W / 2; CY = H / 2;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    /* === INTERACTION === */
+    let isDragging = false, lastX = 0, lastY = 0;
+    let velAz = 0, velEl = 0;
+    let velZoom = 0;
+
+
+    canvas.addEventListener('mousedown', e => { isDragging = true; velAz = 0; velEl = 0; lastX = e.clientX; lastY = e.clientY; });
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        // 降低脫手瞬間的初始滑行速度，保留適度動量
+        velAz *= 0.65;
+        velEl *= 0.65;
+      }
+      isDragging = false;
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (isDragging) {
+        const sens = hFOV / W;
+        velAz = -(e.clientX - lastX) * sens;
+        velEl = (e.clientY - lastY) * sens;
+        lookAz += velAz;
+        lookEl += velEl;
+        lookEl = Math.max(toRad(-89.9), Math.min(toRad(89.9), lookEl));
+        lookAz = ((lookAz % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        lastX = e.clientX; lastY = e.clientY;
+      }
+      doHover(e.clientX, e.clientY);
+    });
+    function handleZoom(e) {
+      const delta = e.deltaY || e.wheelDelta || -e.detail;
+      if (!delta) return;
+      e.preventDefault();
+      const d = Math.sign(delta);
+      velZoom += d * 0.009; // 大幅切細縮放速度的累積量
+    }
+    window.addEventListener('wheel', handleZoom, { passive: false });
+    window.addEventListener('mousewheel', handleZoom, { passive: false });
+    window.addEventListener('DOMMouseScroll', handleZoom, { passive: false });
+    document.addEventListener('wheel', handleZoom, { passive: false });
+    document.addEventListener('mousewheel', handleZoom, { passive: false });
+
+    let lastTD = null;
+    canvas.addEventListener('touchstart', e => {
+      if (e.touches.length === 1) { isDragging = true; velAz = 0; velEl = 0; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }
+    }, { passive: true });
+    canvas.addEventListener('touchend', () => {
+      if (isDragging) {
+        velAz *= 0.6;
+        velEl *= 0.6;
+      }
+      isDragging = false;
+      lastTD = null;
+    });
+    canvas.addEventListener('touchmove', e => {
+      if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (lastTD) { hFOV *= lastTD / d; hFOV = Math.max(toRad(5), Math.min(toRad(185), hFOV)); }
+        lastTD = d;
+      } else if (e.touches.length === 1 && isDragging) {
+        const sens = hFOV / W;
+        velAz = -(e.touches[0].clientX - lastX) * sens;
+        velEl = (e.touches[0].clientY - lastY) * sens;
+        lookAz += velAz;
+        lookEl += velEl;
+        lookEl = Math.max(toRad(-89.9), Math.min(toRad(89.9), lookEl));
+        lookAz = ((lookAz % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    /* Buttons */
+    const toggles = {
+      atmosphere: true,
+      constellations: false,
+      conNames: false,
+      starNames: false,
+      milkyway: true,
+      grid: false,
+      equatorial: false,
+      ecliptic: false
+    };
+    function bindToggle(id, key) {
+      const el = document.getElementById(id);
+      el.addEventListener('click', () => { toggles[key] = !toggles[key]; el.classList.toggle('active'); });
+    }
+    bindToggle('btn-atmosphere', 'atmosphere');
+    bindToggle('btn-constellations', 'constellations');
+    bindToggle('btn-con-names', 'conNames');
+    bindToggle('btn-star-names', 'starNames');
+    bindToggle('btn-milkyway', 'milkyway');
+    bindToggle('btn-grid', 'grid');
+    bindToggle('btn-equatorial', 'equatorial');
+    bindToggle('btn-ecliptic', 'ecliptic');
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      lookAz = Math.PI; lookEl = toRad(25); hFOV = toRad(90);
+    });
+
+    /* === KEYBOARD SHORTCUTS === */
+    const keyMap = {
+      't': 'atmosphere',
+      'c': 'constellations', 'n': 'conNames', 's': 'starNames',
+      'm': 'milkyway', 'g': 'grid', 'e': 'equatorial'
+    };
+    const btnMap = {
+      'atmosphere': 'btn-atmosphere',
+      'constellations': 'btn-constellations', 'conNames': 'btn-con-names',
+      'starNames': 'btn-star-names', 'milkyway': 'btn-milkyway',
+      'grid': 'btn-grid', 'equatorial': 'btn-equatorial'
+    };
+    window.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const k = e.key.toLowerCase();
+      if (keyMap[k]) {
+        const key = keyMap[k];
+        toggles[key] = !toggles[key];
+        document.getElementById(btnMap[key]).classList.toggle('active', toggles[key]);
+      } else if (k === 'r') {
+        lookAz = Math.PI; lookEl = toRad(25); hFOV = toRad(90);
+      } else if (k === 'w' || e.key === 'ArrowUp') {
+        lookAz = 0; lookEl = toRad(25);
+      } else if (k === 's' || e.key === 'ArrowDown') {
+        lookAz = Math.PI; lookEl = toRad(25);
+      } else if (k === 'a' || e.key === 'ArrowLeft') {
+        lookAz = toRad(270); lookEl = toRad(25);
+      } else if (k === 'd' || e.key === 'ArrowRight') {
+        lookAz = toRad(90); lookEl = toRad(25);
+      } else if (k === 'z' || k === ' ') {
+        lookEl = toRad(89.9);
+      } else if (k === '1') {
+        hFOV = toRad(110);
+      } else if (k === '2') {
+        hFOV = toRad(90);
+      } else if (k === '3') {
+        hFOV = toRad(45);
+      }
+    });
+
+    /* Show keyboard hint in info-bar */
+    document.getElementById('info-bar').innerHTML =
+      '滾輪縮放 · 拖曳旋轉視角 · 懸停查看 &nbsp;|&nbsp; '
+      + '<span style="color:#5b8fff">WASD/方向鍵</span>切換方位 '
+      + '<span style="color:#5b8fff">Z</span>天頂 '
+      + '<span style="color:#5b8fff">123</span>切換視野 '
+      + '<span style="color:#5b8fff">R</span>重置';
+
+    /* === TOOLTIP === */
+    const tooltip = document.getElementById('tooltip');
+    let screenPos = [];
+    const SH_COLS = 32;
+    const SH_ROWS = 32;
+    let spatialHash = Array.from({ length: SH_COLS * SH_ROWS }, () => []);
+
+    function doHover(mx, my) {
+      const cellW = window.innerWidth / SH_COLS;
+      const cellH = window.innerHeight / SH_ROWS;
+      const gx = Math.floor(mx / cellW);
+      const gy = Math.floor(my / cellH);
+
+      let nearest = null, minD = 22;
+      for (let y = Math.max(0, gy - 1); y <= Math.min(SH_ROWS - 1, gy + 1); y++) {
+        for (let x = Math.max(0, gx - 1); x <= Math.min(SH_COLS - 1, gx + 1); x++) {
+          const idx = y * SH_COLS + x;
+          for (const { x: sx, y: sy, star } of spatialHash[idx]) {
+            const d = Math.hypot(sx - mx, sy - my);
+            if (d < minD) { minD = d; nearest = star; }
+          }
+        }
+      }
+      if (nearest) {
+        document.getElementById('tt-name').textContent = nearest.n + ' (' + nearest.cn + ')';
+        document.getElementById('tt-meta').innerHTML =
+          '星座: ' + (CON_NAMES[nearest.con] || nearest.con) + '<br>' +
+          '<span class="star-mag">視星等: ' + nearest.mag.toFixed(2) + '</span><br>' +
+          '光譜型: ' + (nearest.sp || '?') + '<br>' +
+          'RA: ' + nearest.ra.toFixed(3) + 'h &nbsp;Dec: ' + nearest.dec.toFixed(2) + '°';
+        tooltip.style.left = Math.min(mx + 14, W - 215) + 'px';
+        tooltip.style.top = Math.min(my - 10, H - 130) + 'px';
+        tooltip.classList.add('show');
+      } else { tooltip.classList.remove('show'); }
+    }
+
+    /* === FPS === */
+    let fpsVal = 60, lastFPSTime = performance.now(), framesCounted = 0;
+    const fpsEl = document.getElementById('fps-val');
+
+    /* === CLOCK === */
+    function updateClock(now) {
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('time-display').textContent = hh + ':' + mm + ':' + ss;
+      document.getElementById('date-display').textContent =
+        now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日';
+    }
+
+    /* === PROJECTION HELPERS === */
+    function getXY(ra_h, dec_deg, lst_deg) {
+      const { alt, az } = raDecToAltAz(ra_h, dec_deg, lst_deg);
+      return altAzToXY(alt, az);
+    }
+
+    /* helper: focal length from current hFOV (Stereographic) */
+    function focalLen() { return (W / 4) / Math.tan(hFOV / 4); }
+    /* horizon Y in screen coords (Approximate stereographic horizon) */
+    function horizonY() { return CY + 2 * focalLen() * Math.tan(lookEl / 2); }
+
+    /* === DRAW FUNCTIONS === */
+    // Background gradient cache
+    let _bgCache = { t: -99, t2: -99, hy: -99, gSky: null, topRGB: null, midRGB: null, horRGB: null };
+    function drawBackground(sunAlt_deg, ts) {
+      const hy = horizonY();
+      // Sky colour transitions: night → twilight → dawn → day
+      const t = Math.max(0, Math.min(1, (sunAlt_deg + 18) / 30));   // 0 at -18°, 1 at +12°
+      const t2 = Math.max(0, Math.min(1, (sunAlt_deg + 4) / 14));   // 0 at -4°, 1 at +10°
+
+      function lerp3(a, b, f) { return a.map((v, i) => Math.round(v + (b[i] - v) * f)); }
+
+      // Only recompute gradient if sky colour changed meaningfully
+      const tR = Math.round(t * 200), t2R = Math.round(t2 * 200), hyR = Math.round(hy);
+      if (_bgCache.t !== tR || _bgCache.t2 !== t2R || _bgCache.hy !== hyR) {
+        const nightTop = [8, 11, 20]; // #080B14
+        const twilightTop = [8, 18, 52];
+        const dayTop = [30, 100, 200];
+
+        const nightMid = [18, 22, 41]; // #121629
+        const twilightMid = [20, 35, 75];
+        const dayMid = [80, 140, 215];
+
+        const nightHor = [42, 31, 29]; // #2A1F1D
+        const twilightHor = [30, 60, 110];
+        const dayHor = [150, 190, 230];
+
+        _bgCache.topRGB = lerp3(lerp3(nightTop, twilightTop, t), dayTop, t2);
+        _bgCache.midRGB = lerp3(lerp3(nightMid, twilightMid, t), dayMid, t2);
+        _bgCache.horRGB = lerp3(lerp3(nightHor, twilightHor, t), dayHor, t2);
+
+        // 2D Canvas fallback (less accurate but okay for fallback)
+        _bgCache.gSky = ctx.createLinearGradient(0, 0, 0, hy > 0 ? hy : H);
+        _bgCache.gSky.addColorStop(0, `rgb(${_bgCache.topRGB.join(',')})`);
+        _bgCache.gSky.addColorStop(0.5, `rgb(${_bgCache.midRGB.join(',')})`);
+        _bgCache.gSky.addColorStop(1, `rgb(${_bgCache.horRGB.join(',')})`);
+        _bgCache.t = tR; _bgCache.t2 = t2R; _bgCache.hy = hyR;
+      }
+      const horRGB = _bgCache.horRGB;
+
+      // ctx.fillStyle = _bgCache.gSky;
+      // ctx.fillRect(0, 0, W, Math.max(0, hy));
+
+      // Ocean
+      if (hy < H) {
+        // drawOcean(hy, ts, horRGB);
+      }
+      // If sun is below horizon, fill from hy upward for below-screen case
+      if (hy >= H) {
+        ctx.fillStyle = `rgb(${_bgCache.topRGB.join(',')})`;
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+
+    function drawOcean(hy, ts, horRGB) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, hy, W, H - hy);
+      ctx.clip(); // Restrict to below horizon
+
+      // Base water color (reflection of horizon, darkened)
+      const grad = ctx.createLinearGradient(0, hy, 0, H);
+      grad.addColorStop(0, `rgb(${horRGB.map(c => Math.max(5, c - 50)).join(',')})`);
+      grad.addColorStop(1, '#02050a'); // Deep sea
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, hy, W, H - hy);
+
+      // Wave layers
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = '#406080';
+
+      for (let i = 0; i < 3; i++) {
+        const speed = 0.0008 * (i + 1);
+        const freq = 0.01 + i * 0.005;
+        const amp = 3 + i * 2;
+        // Further waves are smaller and less transparent
+        ctx.globalAlpha = 0.15 - (i * 0.03);
+
+        ctx.beginPath();
+        ctx.moveTo(0, H);
+        for (let x = 0; x <= W; x += 20) {
+          // Perspective: waves closer to bottom of screen (larger i offset)
+          const y = hy + amp * Math.sin(x * freq + ts * speed + i * 100) + (i * 12);
+          ctx.lineTo(x, y);
+        }
+        ctx.lineTo(W, H);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function drawHorizonGlow(sunAlt_deg, sunAz_rad) {
+      const hy = horizonY();
+      if (hy < 0) return; // Horizon is above screen
+
+      // Azimuth difference: sun vs camera
+      let azDiff = sunAz_rad - lookAz;
+      azDiff = (azDiff + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+
+      // Screen X position of the sun's azimuth on the horizon
+      const sunX = CX + (azDiff / hFOV) * W;
+
+      // Anti-solar azimuth diff
+      let antiAzDiff = azDiff > 0 ? azDiff - Math.PI : azDiff + Math.PI;
+      const antiSunX = CX + (antiAzDiff / hFOV) * W;
+
+      // 1. Belt of Venus & Earth Shadow (Anti-solar horizon)
+      // Visible during twilight (sun between -6 and +4)
+      const venusT = Math.max(0, 1 - Math.abs(sunAlt_deg + 1) / 7);
+      if (venusT > 0.05 && (antiSunX > -W && antiSunX < W * 2)) {
+        ctx.save();
+        // Fade out as we look away from the anti-solar point
+        const antiSunAlpha = Math.max(0, 1 - Math.abs(antiAzDiff) / (Math.PI * 0.6));
+
+        if (antiSunAlpha > 0) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = venusT * antiSunAlpha * 0.8;
+
+          const vGrad = ctx.createRadialGradient(antiSunX, hy, W * 0.1, antiSunX, hy, W * 0.8);
+          vGrad.addColorStop(0, 'rgba(180, 100, 150, 0.4)'); // Pink/Purple
+          vGrad.addColorStop(0.3, 'rgba(120, 80, 140, 0.2)');
+          vGrad.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = vGrad;
+          ctx.fillRect(antiSunX - W, hy - W * 0.4, W * 2, W * 0.5);
+
+          // Earth shadow band just below the pink
+          const sGrad = ctx.createLinearGradient(0, hy - 40, 0, hy);
+          sGrad.addColorStop(0, 'rgba(0,0,0,0)');
+          sGrad.addColorStop(1, 'rgba(10,15,30,0.6)');
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = venusT * antiSunAlpha;
+          ctx.fillStyle = sGrad;
+          ctx.fillRect(0, hy - 40, W, 40);
+        }
+        ctx.restore();
+      }
+
+      // 2. Sunset/Sunrise Directional Mie Scatter (Towards sun)
+      const glowT = Math.max(0, 1 - Math.abs(sunAlt_deg - 3) / 15); // Strongest at +3°
+      const dayGlowT = Math.max(0, Math.min(1, (sunAlt_deg - 10) / 20)); // Daylight halo
+
+      if ((glowT > 0.05 || dayGlowT > 0.05) && (sunX > -W * 1.5 && sunX < W * 2.5)) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        // Day white halo
+        if (dayGlowT > 0) {
+          ctx.globalAlpha = dayGlowT;
+          const radius = W * 1.2;
+          const dGrad = ctx.createRadialGradient(sunX, hy, 0, sunX, hy, radius);
+          dGrad.addColorStop(0, 'rgba(255,255,255,0.7)');
+          dGrad.addColorStop(0.3, 'rgba(200,220,255,0.25)');
+          dGrad.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = dGrad;
+          ctx.fillRect(sunX - radius, hy - radius, radius * 2, radius * 2);
+        }
+
+        // Sunset/Sunrise Orange/Red Scatter
+        if (glowT > 0) {
+          ctx.globalAlpha = glowT;
+          const radius = W * 1.5;
+          const sGrad = ctx.createRadialGradient(sunX, hy + 30, 0, sunX, hy + 30, radius);
+          // Dynamic colour based on sun altitude (lower = redder)
+          const altShift = Math.max(0, Math.min(1, (sunAlt_deg + 4) / 8)); // 0=-4(red), 1=+4(yellow)
+          const c1 = altShift > 0.5 ? '255,240,200' : '255,200,100';
+          const c2 = altShift > 0.5 ? '255,200,100' : '255,100,50';
+          const c3 = altShift > 0.5 ? '255,100,50' : '150,50,50';
+          const c4 = altShift > 0.5 ? '100,50,100' : '50,20,80';
+
+          sGrad.addColorStop(0, `rgba(${c1}, 0.85)`);
+          sGrad.addColorStop(0.15, `rgba(${c2}, 0.55)`);
+          sGrad.addColorStop(0.4, `rgba(${c3}, 0.25)`);
+          sGrad.addColorStop(0.7, `rgba(${c4}, 0.05)`);
+          sGrad.addColorStop(1, 'rgba(0,0,0,0)');
+
+          ctx.fillStyle = sGrad;
+          ctx.fillRect(sunX - radius, hy - radius, radius * 2, radius * 2);
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawAtmosphericEffects(astro) {
+      const { sunRaDec, sunAltAz, sunAlt_deg, moonRaDec, lst_deg } = astro;
+
+      // Calculate Moon Illumination and Interference
+      const sDec = sunRaDec.dec * Math.PI / 180;
+      const sRa = sunRaDec.ra * 15 * Math.PI / 180;
+      const mDec = moonRaDec.dec * Math.PI / 180;
+      const mRa = moonRaDec.ra * 15 * Math.PI / 180;
+
+      const cosElong = Math.sin(sDec) * Math.sin(mDec) + Math.cos(sDec) * Math.cos(mDec) * Math.cos(sRa - mRa);
+      const phaseIllum = Math.max(0, (1 - cosElong) / 2);
+
+      const moonAltAz = raDecToAltAz(moonRaDec.ra, moonRaDec.dec, lst_deg);
+      let moonInterference = 0;
+      if (moonAltAz.alt > toRad(-5)) {
+        moonInterference = Math.min(1, (moonAltAz.alt + toRad(5)) / toRad(15)) * phaseIllum;
+      }
+
+      const sunP = altAzToXY(sunAltAz.alt, sunAltAz.az);
+
+      // 1. Zodiacal Light (黃道光)
+      const zlVisibility = Math.max(0, Math.min(1, (sunAlt_deg + 18) / 5)) * Math.max(0, Math.min(1, (-5 - sunAlt_deg) / 5));
+      if (zlVisibility > 0 && moonInterference < 0.5) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const alphaScale = zlVisibility * (1 - moonInterference * 2);
+
+        const eps = 23.439 * Math.PI / 180;
+        const lambda_sun = Math.atan2(Math.sin(sRa) * Math.cos(eps) + Math.tan(sDec) * Math.sin(eps), Math.cos(sRa));
+
+        for (const sign of [-1, 1]) {
+          const points = [];
+          for (let d = 5; d <= 90; d += 4) {
+            const lambda = lambda_sun + sign * d * Math.PI / 180;
+            let ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+            const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+
+            const ra_h = ((ra + 2 * Math.PI) % (2 * Math.PI)) * 12 / Math.PI;
+            const dec_deg = dec * 180 / Math.PI;
+
+            const altAz = raDecToAltAz(ra_h, dec_deg, lst_deg);
+            if (altAz.alt < -0.1) continue;
+
+            const p = altAzToXY(altAz.alt, altAz.az);
+            if (p) points.push({ x: p.x, y: p.y, d });
+          }
+
+          if (points.length > 2) {
+            ctx.beginPath();
+            // Forward edge
+            for (let i = 0; i < points.length; i++) {
+              const pt = points[i];
+              let dx = 0, dy = 0;
+              if (i < points.length - 1) {
+                dx = points[i + 1].x - pt.x; dy = points[i + 1].y - pt.y;
+              } else {
+                dx = pt.x - points[i - 1].x; dy = pt.y - points[i - 1].y;
+              }
+              const len = Math.hypot(dx, dy) || 1;
+              const nx = -dy / len; const ny = dx / len;
+              const radius = W * 0.15 * (1 - pt.d / 100);
+              ctx.lineTo(pt.x + nx * radius, pt.y + ny * radius);
+            }
+            // Backward edge
+            for (let i = points.length - 1; i >= 0; i--) {
+              const pt = points[i];
+              let dx = 0, dy = 0;
+              if (i > 0) {
+                dx = pt.x - points[i - 1].x; dy = pt.y - points[i - 1].y;
+              } else {
+                dx = points[i + 1].x - pt.x; dy = points[i + 1].y - pt.y;
+              }
+              const len = Math.hypot(dx, dy) || 1;
+              const nx = -dy / len; const ny = dx / len;
+              const radius = W * 0.15 * (1 - pt.d / 100);
+              ctx.lineTo(pt.x - nx * radius, pt.y - ny * radius);
+            }
+            ctx.closePath();
+
+            const startP = points[0];
+            const endP = points[points.length - 1];
+            const grad = ctx.createLinearGradient(startP.x, startP.y, endP.x, endP.y);
+            grad.addColorStop(0, `rgba(235, 240, 255, ${0.1 * alphaScale})`);
+            grad.addColorStop(1, 'rgba(235, 240, 255, 0)');
+
+            ctx.shadowColor = `rgba(235, 240, 255, ${0.1 * alphaScale})`;
+            ctx.shadowBlur = 40;
+
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            ctx.shadowBlur = 0; // reset
+          }
+        }
+        ctx.restore();
+      }
+
+      // 2. Gegenschein (對日照)
+      if (moonInterference < 0.2) {
+        const antiSunRa = (sunRaDec.ra + 12) % 24;
+        const antiSunDec = -sunRaDec.dec;
+        const antiSunAltAz = raDecToAltAz(antiSunRa, antiSunDec, lst_deg);
+
+        if (antiSunAltAz.alt > 0) {
+          const p = altAzToXY(antiSunAltAz.alt, antiSunAltAz.az);
+          if (p) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+
+            const altScale = Math.max(0, Math.min(1, antiSunAltAz.alt / toRad(20)));
+            const intensity = 0.06 * altScale * (1 - moonInterference * 5);
+
+            if (intensity > 0) {
+              const radiusX = W * 0.08;
+              const radiusY = W * 0.05;
+
+              ctx.translate(p.x, p.y);
+              ctx.rotate(antiSunAltAz.az);
+
+              const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, radiusX);
+              grad.addColorStop(0, `rgba(220, 230, 255, ${intensity})`);
+              grad.addColorStop(1, 'rgba(220, 230, 255, 0)');
+
+              ctx.scale(1, radiusY / radiusX);
+              ctx.fillStyle = grad;
+              ctx.beginPath();
+              ctx.arc(0, 0, radiusX, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+      }
+
+      // 3. Crepuscular rays (曙暮輝)
+      const rayVisibility = Math.max(0, 1 - Math.abs(sunAlt_deg - 2) / 8);
+      if (rayVisibility > 0 && sunP) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        const numRays = 10;
+        const rayLengthBase = W * 0.8;
+
+        for (let i = 0; i < numRays; i++) {
+          const angleBase = -Math.PI + (i / (numRays - 1)) * Math.PI;
+          const hash = Math.sin(i * 123.456 + sunAltAz.az * 10);
+          const rayAngle = angleBase + hash * 0.15;
+          const rayLength = rayLengthBase * (0.7 + 0.3 * Math.cos(hash * 43.21));
+
+          const x2 = sunP.x + Math.cos(rayAngle) * rayLength;
+          const y2 = sunP.y + Math.sin(rayAngle) * rayLength;
+
+          const rayWidth = 0.05 + 0.03 * hash;
+          const x3 = sunP.x + Math.cos(rayAngle + rayWidth) * rayLength;
+          const y3 = sunP.y + Math.sin(rayAngle + rayWidth) * rayLength;
+
+          const grad = ctx.createLinearGradient(sunP.x, sunP.y, x2, y2);
+          const alpha = 0.08 * rayVisibility * (0.5 + 0.5 * hash);
+          grad.addColorStop(0, `rgba(255, 230, 180, ${alpha})`);
+          grad.addColorStop(1, 'rgba(255, 210, 150, 0)');
+
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(sunP.x, sunP.y);
+          ctx.lineTo(x2, y2);
+          ctx.lineTo(x3, y3);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+
+
+
+
+
+
+
+
+
+
+    /* === MILKY WAY — Image-based affine mesh projection ===
+       milkyway.png: equirectangular galactic coords, GC centred,
+       l = –180° (left) to +180° (right), b = –55° (bottom) to +55° (top).
+       Each frame we warp 120×20 galactic patches → screen via affine triangles.
+    */
+    function drawMilkyWay(lst_deg) {
+      // Milky Way temporarily disabled
+    }
+
+
+    /* === NAMED STAR SCREEN POSITION CACHE === */
+    let _starPosCache = {};
+    function buildStarPositionCache(lst_deg) {
+      _starPosCache = {};
+      screenPos.length = 0;
+      for (let i = 0; i < 1024; i++) spatialHash[i].length = 0;
+
+      const cellW = window.innerWidth / SH_COLS;
+      const cellH = window.innerHeight / SH_ROWS;
+
+      for (const star of STARS) {
+        const rd = raDecToAltAz(star.ra, star.dec, lst_deg);
+        const p = altAzToXY(rd.alt, rd.az);
+        if (p) {
+          _starPosCache[star.cn] = { x: p.x, y: p.y, alt: rd.alt };
+          const posObj = { x: p.x, y: p.y, star };
+          screenPos.push(posObj);
+
+          if (p.x >= 0 && p.x < window.innerWidth && p.y >= 0 && p.y < window.innerHeight) {
+            const gx = Math.floor(p.x / cellW);
+            const gy = Math.floor(p.y / cellH);
+            const idx = gy * SH_COLS + gx;
+            if (idx >= 0 && idx < 1024) {
+              spatialHash[idx].push(posObj);
+            }
+          }
+        }
+      }
+    }
+
+
+
+    const LABEL_COLORS = {
+      star: [0.62, 0.74, 0.88],
+      con: [1.0, 1.0, 1.0],
+      grid: [0.44, 0.56, 1.0],
+      ecliptic: [1.0, 0.69, 0.25],
+      cardinalRed: [1.0, 0.44, 0.44],
+      cardinal: [0.63, 0.69, 0.78],
+      zenith: [0.51, 0.67, 1.0]
+    };
+
+
+
+
+
+
+
+
+
+
+
+    function colorToRgba(c, alpha) {
+      return `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${alpha})`;
+    }
+
+    function addConstellationNameLabels(labels, starVisibility) {
+      const centroids = {};
+      for (const star of STARS) {
+        const c = _starPosCache[star.cn];
+        if (!c) continue;
+        if (!centroids[star.con]) centroids[star.con] = { x: 0, y: 0, n: 0 };
+        centroids[star.con].x += c.x; centroids[star.con].y += c.y; centroids[star.con].n++;
+      }
+      for (const [con, c] of Object.entries(centroids)) {
+        if (c.n < 1) continue;
+        const px = c.x / c.n;
+        const py = c.y / c.n;
+        const dx = px - CX;
+        const dy = py - CY;
+        const dist = Math.hypot(dx, dy);
+        const maxDist = Math.min(W, H) * 0.45;
+        const fade = Math.max(0, 1 - Math.pow(dist / maxDist, 1.5));
+        labels.push({
+          text: CON_NAMES[con] || con,
+          x: px,
+          y: py,
+          size: 13,
+          align: 'center',
+          baseline: 'middle',
+          color: LABEL_COLORS.con,
+          alpha: 0.85 * starVisibility * fade
+        });
+      }
+    }
+
+    function addStarNameLabels(labels, lst_deg, starVisibility) {
+      if (!toggles.starNames) return;
+
+      for (const { x, y, star } of screenPos) {
+        const rad = Math.max(0.25, 4.2 - star.mag * 0.75);
+        const hFOV_deg = hFOV * 180 / Math.PI;
+
+        // Calculate the FOV range where this star's label should fade in.
+        // Dimmer stars need a smaller FOV (zoomed in) to become visible.
+        const fovFull = Math.max(10.0, (8.5 - star.mag) * 15.0); // FOV at which alpha is 100%
+        const fovStart = fovFull + 20.0; // FOV at which alpha starts increasing from 0%
+
+        let fovAlpha = 1.0;
+        if (star.mag > 1.5) { // Always show very bright stars
+          if (hFOV_deg >= fovStart) continue;
+          if (hFOV_deg > fovFull) {
+            let t = (fovStart - hFOV_deg) / (fovStart - fovFull);
+            fovAlpha = t * t * (3.0 - 2.0 * t); // Smoothstep easing
+          }
+        }
+
+        const alpha = Math.max(0.45, 1.0 - star.mag * 0.08) * starVisibility * fovAlpha;
+        if (alpha <= 0.01) continue;
+
+        labels.push({
+          text: star.n,
+          x: x + Math.max(2, rad) + 2,
+          y: y,
+          size: Math.max(8, 10 * Math.pow(toRad(90) / hFOV, 0.35)),
+          align: 'left',
+          baseline: 'middle',
+          color: LABEL_COLORS.star,
+          alpha: alpha
+        });
+      }
+    }
+
+    function addCardinalLabels(labels) {
+      const dirs = [
+        { az: 0, l: '北', c: LABEL_COLORS.cardinalRed },
+        { az: 90, l: '東', c: LABEL_COLORS.cardinal },
+        { az: 180, l: '南', c: LABEL_COLORS.cardinal },
+        { az: 270, l: '西', c: LABEL_COLORS.cardinal }
+      ];
+      for (const d of dirs) {
+        const p = altAzToXY(0, toRad(d.az));
+        if (!p || p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) continue;
+        labels.push({
+          text: d.l,
+          x: p.x,
+          y: p.y,
+          size: 14,
+          align: 'center',
+          baseline: 'middle',
+          color: d.c,
+          alpha: 0.9
+        });
+        labels.push({
+          text: d.az + '°',
+          x: p.x,
+          y: p.y + 14,
+          size: 10,
+          align: 'center',
+          baseline: 'middle',
+          color: LABEL_COLORS.cardinal,
+          alpha: 0.4
+        });
+      }
+    }
+
+    function addZenithLabel(labels) {
+      const p = altAzToXY(toRad(90), lookAz);
+      if (!p || p.x < 0 || p.x > W || p.y < 0 || p.y > H) return;
+      // We can't render the 3px dot purely through MSDF labels, but 
+      // the performance gain of avoiding canvas context state changes is huge.
+      labels.push({
+        text: '•',
+        x: p.x,
+        y: p.y - 2, // Shift slightly so '•' aligns with original dot pos
+        size: 18,
+        align: 'center',
+        baseline: 'middle',
+        color: [0.35, 0.56, 1.0], // #5b8fff
+        alpha: 0.5
+      });
+      labels.push({
+        text: '天頂',
+        x: p.x,
+        y: p.y - 5,
+        size: 10,
+        align: 'center',
+        baseline: 'bottom',
+        color: LABEL_COLORS.zenith,
+        alpha: 0.5
+      });
+    }
+
+    function addAltAzGridLabels(labels) {
+      for (let alt = 15; alt <= 90; alt += 15) {
+        const pl = altAzToXY(toRad(alt), lookAz);
+        if (pl && pl.x > 20 && pl.x < W - 20 && pl.y > 10 && pl.y < H - 10) {
+          labels.push({
+            text: alt + '°',
+            x: pl.x + 4,
+            y: pl.y - 2,
+            size: 9,
+            align: 'left',
+            baseline: 'middle',
+            color: LABEL_COLORS.grid,
+            alpha: 0.38
+          });
+        }
+      }
+      for (let az2 = 0; az2 < 360; az2 += 30) {
+        const ph = altAzToXY(toRad(1), toRad(az2));
+        if (ph && ph.x > 20 && ph.x < W - 20 && ph.y > 10 && ph.y < H - 10) {
+          labels.push({
+            text: az2 + '°',
+            x: ph.x,
+            y: ph.y + 12,
+            size: 9,
+            align: 'center',
+            baseline: 'middle',
+            color: LABEL_COLORS.grid,
+            alpha: 0.30
+          });
+        }
+      }
+    }
+
+    function addEclipticLabel(labels, lst_deg, starVisibility) {
+      const eps = 23.439 * Math.PI / 180;
+      const labelLambda = 90 * Math.PI / 180;
+      let raLabel = Math.atan2(Math.cos(eps) * Math.sin(labelLambda), Math.cos(labelLambda));
+      const decLabel = Math.asin(Math.sin(eps) * Math.sin(labelLambda));
+      raLabel = ((raLabel + 2 * Math.PI) % (2 * Math.PI)) * 12 / Math.PI;
+      const pLabel = getXY(raLabel, decLabel * 180 / Math.PI, lst_deg);
+      if (pLabel && pLabel.x > 50 && pLabel.x < W - 50 && pLabel.y > 50 && pLabel.y < H - 50) {
+        labels.push({
+          text: '黃道 Ecliptic',
+          x: pLabel.x,
+          y: pLabel.y - 10,
+          size: 12,
+          align: 'center',
+          baseline: 'middle',
+          color: LABEL_COLORS.ecliptic,
+          alpha: 0.6 * starVisibility
+        });
+      }
+    }
+
+    function buildWebGLLabels(lst_deg, starVisibility) {
+      const labels = [];
+      if (starVisibility > 0) {
+        if (toggles.grid) {
+          addZenithLabel(labels);
+          addAltAzGridLabels(labels);
+        }
+        if (toggles.ecliptic) addEclipticLabel(labels, lst_deg, starVisibility);
+        if (toggles.conNames) addConstellationNameLabels(labels, starVisibility);
+        addStarNameLabels(labels, lst_deg, starVisibility);
+      } else {
+        screenPos.length = 0;
+        if (toggles.grid) {
+          addZenithLabel(labels);
+          addAltAzGridLabels(labels);
+        }
+      }
+      addCardinalLabels(labels);
+      return labels;
+    }
+
+    function drawLabels2D(labels) {
+      ctx.save();
+      for (const lbl of labels) {
+        if (!lbl.text) continue;
+        let c = lbl.color || [1, 1, 1];
+        if (typeof c === 'string') {
+          c = LABEL_COLORS[c] || [1, 1, 1];
+        }
+        const a = lbl.alpha !== undefined ? lbl.alpha : 1.0;
+        ctx.fillStyle = `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${a})`;
+
+        ctx.font = `${lbl.weight ? lbl.weight + ' ' : ''}${lbl.size || 12}px Outfit, Rajdhani, sans-serif`;
+        ctx.textAlign = lbl.align || 'center';
+        ctx.textBaseline = lbl.baseline || 'middle';
+
+        ctx.shadowColor = `rgba(0,0,0,${0.8 * a})`;
+        ctx.shadowBlur = 3;
+
+        ctx.fillText(lbl.text, lbl.x, lbl.y);
+      }
+      ctx.restore();
+    }
+
+    /* === METEORS & SATELLITES === */
+
+    const entities = [];
+
+    function updateEntities(dt) {
+
+      // Spawn Meteor (approx 1 per 3-5 seconds depending on fps)
+
+      if (Math.random() < 0.005) {
+
+        entities.push({
+
+          type: 'meteor',
+
+          alt: Math.random() * Math.PI / 2 + 0.2,
+
+          az: Math.random() * Math.PI * 2,
+
+          speed: 0.1 + Math.random() * 0.3, // fast
+
+          dir: Math.random() * Math.PI * 2,
+
+          life: 0.15 + Math.random() * 0.4,
+
+          maxLife: 0,
+
+          brightness: 0.5 + Math.random(),
+
+          col: Math.random() > 0.7 ? '#aaffcc' : '#ffffff'
+
+        });
+
+        const m = entities[entities.length - 1];
+
+        m.maxLife = m.life;
+
+      }
+
+
+
+      // Spawn Satellite (approx 1 per 30 seconds)
+
+      if (Math.random() < 0.0005) {
+
+        entities.push({
+
+          type: 'satellite',
+
+          alt: Math.random() * Math.PI / 2,
+
+          az: Math.random() * Math.PI * 2,
+
+          speed: 0.002 + Math.random() * 0.004, // slow
+
+          dir: Math.random() * Math.PI * 2,
+
+          life: 60,
+
+          maxLife: 60,
+
+          brightness: 0.3 + Math.random() * 0.7
+
+        });
+
+      }
+
+
+
+      for (let i = entities.length - 1; i >= 0; i--) {
+
+        const e = entities[i];
+
+        e.life -= dt;
+
+        if (e.life <= 0) { entities.splice(i, 1); continue; }
+
+
+
+        // Move on sphere
+
+        e.alt += Math.sin(e.dir) * e.speed * dt;
+
+        e.az += Math.cos(e.dir) * e.speed * dt / Math.cos(e.alt);
+
+      }
+
+    }
+
+
+
+    function drawEntities() {
+
+      ctx.save();
+
+      for (const e of entities) {
+
+        const p = altAzToXY(e.alt, e.az);
+
+        if (!p) continue;
+
+
+
+        if (e.type === 'meteor') {
+
+          const tailAlt = e.alt - Math.sin(e.dir) * e.speed * 0.1;
+
+          const tailAz = e.az - Math.cos(e.dir) * e.speed * 0.1 / Math.cos(e.alt);
+
+          const pt = altAzToXY(tailAlt, tailAz);
+
+          if (!pt) continue;
+
+
+
+          const alpha = Math.min(1, (e.life / e.maxLife) * 3) * e.brightness;
+
+          const grad = ctx.createLinearGradient(pt.x, pt.y, p.x, p.y);
+
+          grad.addColorStop(0, 'rgba(255,255,255,0)');
+
+          grad.addColorStop(1, e.col);
+
+
+
+          ctx.globalAlpha = alpha;
+
+          ctx.beginPath();
+
+          ctx.moveTo(pt.x, pt.y);
+
+          ctx.lineTo(p.x, p.y);
+
+          ctx.strokeStyle = grad;
+
+          ctx.lineWidth = 1.5;
+
+          ctx.lineCap = 'round';
+
+          ctx.stroke();
+
+
+
+          // head flash
+
+          ctx.fillStyle = '#fff';
+
+          ctx.beginPath(); ctx.arc(p.x, p.y, 1.0, 0, Math.PI * 2); ctx.fill();
+
+        }
+
+        else if (e.type === 'satellite') {
+
+          const alpha = Math.min(1, Math.max(0, Math.sin(e.alt) * 2)) * Math.min(1, e.life / 5) * Math.min(1, (e.maxLife - e.life) / 5) * e.brightness;
+
+          ctx.globalAlpha = alpha;
+
+          ctx.fillStyle = '#ffeedd';
+
+          ctx.beginPath(); ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2); ctx.fill();
+
+        }
+
+      }
+
+      ctx.restore();
+
+    }
+
+
+
+    /* === MAIN LOOP === */
+
+    let lastClockT = 0;
+
+    let lastFrameT = 0;
+    const astroCache = {
+      lastCalcT: -Infinity,
+      lastUnixMs: 0,
+      now: null,
+      lst_deg: 0,
+      sunRaDec: null,
+      sunAltAz: null,
+      sunAlt_deg: 0,
+      moonRaDec: null,
+      moonPhase: 0,
+      starVisibility: 1
+    };
+
+    function updateAstronomyCache(ts, now) {
+      const unixMs = now.getTime();
+      const jumped = astroCache.lastUnixMs && Math.abs(unixMs - astroCache.lastUnixMs) > 60000;
+      if (!astroCache.now || jumped || ts - astroCache.lastCalcT >= 500) {
+        const jd = julianDate(now);
+        const lst_deg = getLST(now);
+        const sunRaDec = getSunRaDec(jd);
+        const sunAltAz = raDecToAltAz(sunRaDec.ra, sunRaDec.dec, lst_deg);
+        const sunAlt_deg = sunAltAz.alt * 180 / Math.PI;
+        const moonRaDec = getMoonRaDec(jd);
+        const moonPhase = moonRaDec.phase;
+        const starVisibility = toggles.atmosphere
+          ? Math.max(0, Math.min(1, (-sunAlt_deg - 2) / 10))
+          : 1.0;
+        astroCache.lastCalcT = ts;
+        astroCache.now = now;
+        astroCache.lst_deg = lst_deg;
+        astroCache.sunRaDec = sunRaDec;
+        astroCache.sunAltAz = sunAltAz;
+        astroCache.sunAlt_deg = sunAlt_deg;
+        astroCache.moonRaDec = moonRaDec;
+        astroCache.moonPhase = moonPhase;
+        astroCache.starVisibility = starVisibility;
+      }
+      astroCache.lastUnixMs = unixMs;
+      return astroCache;
+    }
+
+    function render(ts) {
+
+      if (lastFrameT === 0) lastFrameT = ts;
+
+      const dt = (ts - lastFrameT) / 1000;
+
+      lastFrameT = ts;
+
+      // 慣性滑動 (Damping)
+      if (!isDragging) {
+        if (Math.abs(velAz) > 0.00001 || Math.abs(velEl) > 0.00001) {
+          lookAz += velAz;
+          lookEl += velEl;
+          lookEl = Math.max(toRad(-89.9), Math.min(toRad(89.9), lookEl));
+          lookAz = ((lookAz % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+          // 調整阻尼為 0.92，讓滑行更長更順暢
+          velAz *= 0.98;
+          velEl *= 0.98;
+        }
+      }
+
+      // 縮放慣性滑動
+      if (Math.abs(velZoom) > 0.00001) {
+        // 降低倍率，讓縮放更平緩細緻
+        hFOV *= Math.pow(1.03, velZoom * 2.0);
+        hFOV = Math.max(toRad(15), Math.min(toRad(150), hFOV));
+        velZoom *= 0.98; // 調整縮放阻尼，增加滑行距離
+      }
+
+      if (dt > 0 && dt < 0.5) updateEntities(dt);
+
+
+
+      framesCounted++;
+      if (ts - lastFPSTime >= 600) {
+        fpsVal = Math.round(framesCounted * 1000 / (ts - lastFPSTime));
+        fpsEl.textContent = fpsVal; framesCounted = 0; lastFPSTime = ts;
+      }
+      const now = new Date();
+      const astro = updateAstronomyCache(ts, now);
+      const lst_deg = astro.lst_deg;
+
+      if (ts - lastClockT > 200) { updateClock(now); lastClockT = ts; }
+
+      updateCamCache();
+      buildStarPositionCache(lst_deg);
+
+      // Sun position
+      const sunRaDec = astro.sunRaDec;
+      const sunAltAz = astro.sunAltAz;
+      const sunAlt_deg = astro.sunAlt_deg;
+
+      // Moon position + phase
+      const moonRaDec = astro.moonRaDec;
+      const moonPhase = astro.moonPhase;
+      // Moon horizontal coordinates are cached with the RA/Dec update cadence.
+
+      // Stars invisible in daylight (above -6° sun is civil twilight end)
+      const starVisibility = astro.starVisibility;
+
+      // 1. Calculate background colors
+      const bgSunAlt = toggles.atmosphere ? sunAlt_deg : -18;
+      drawBackground(bgSunAlt, ts); // Updates _bgCache
+
+      ctx.clearRect(0, 0, W, H);
+      const webglLabels = buildWebGLLabels(lst_deg, starVisibility);
+
+      // 2. Render WebGL layer
+      if (window.updateStarLOD) window.updateStarLOD(hFOV);
+      if (window.renderWebGL) {
+        window.renderWebGL(
+          ts, lst_deg, starVisibility,
+          _bgCache.topRGB, _bgCache.midRGB, _bgCache.horRGB, _bgCache.hy, H,
+          { ra: sunRaDec.ra, dec: sunRaDec.dec },
+          { ra: moonRaDec.ra, dec: moonRaDec.dec },
+          moonPhase,
+          [] // Pass empty array to disable blurry MSDF labels
+        );
+      }
+
+      // Render crisp native labels on 2D Canvas overlay
+      drawLabels2D(webglLabels);
+      // drawBackground(toggles.atmosphere ? sunAlt_deg : -18, ts); // Handled before clearRect
+      if (toggles.atmosphere) {
+        drawHorizonGlow(sunAlt_deg, sunAltAz.az);
+        drawAtmosphericEffects(astro);
+      }
+
+      // Sun (draw below clouds/stars so it blends with sky naturally)
+      // if (sunAltAz.alt > toRad(-0.5)) drawSun(sunAltAz.alt, sunAltAz.az); // Migrated to WebGL
+
+      if (starVisibility > 0) {
+        if (toggles.milkyway) drawMilkyWay(lst_deg);
+        drawEntities();
+      } else {
+        // Daytime labels are handled by the WebGL label layer.
+      }
+
+      // Moon (always on top)
+      // Moon rendering migrated to WebGL
+
+      requestAnimationFrame(render);
+    }
+    async function start() {
+      try {
+        if (window.initWebGL) await window.initWebGL();
+        requestAnimationFrame(render);
+      } catch (err) {
+        console.error(err);
+        document.getElementById('info-bar').textContent = 'WebGL asset load failed: ' + err.message;
+      }
+    }
+    start();
+  
