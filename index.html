@@ -334,9 +334,40 @@
   <script src="astronomy.browser.js"></script>
   <script src="constellations_data.js"></script>
   <script src="stars_data.js"></script>
+  <script src="real_stars.js"></script>
   <script src="webgl_engine.js"></script>
   <script src="astronomy_engine.js"></script>
   <script>
+    window.onerror = function (msg, src, lineno, colno, error) {
+      const errDiv = document.createElement("div");
+      errDiv.style.position = "absolute";
+      errDiv.style.top = "10px";
+      errDiv.style.left = "10px";
+      errDiv.style.color = "red";
+      errDiv.style.backgroundColor = "rgba(0,0,0,0.8)";
+      errDiv.style.padding = "20px";
+      errDiv.style.zIndex = "999999";
+      errDiv.style.fontFamily = "monospace";
+      errDiv.style.fontSize = "20px";
+      errDiv.style.maxWidth = "80vw";
+      errDiv.innerText = "ERROR: " + msg + "\nLINE: " + lineno + "\n" + (error && error.stack ? error.stack : "");
+      document.body.appendChild(errDiv);
+    };
+    window.addEventListener("unhandledrejection", function (event) {
+      const errDiv = document.createElement("div");
+      errDiv.style.position = "absolute";
+      errDiv.style.top = "150px";
+      errDiv.style.left = "10px";
+      errDiv.style.color = "orange";
+      errDiv.style.backgroundColor = "rgba(0,0,0,0.8)";
+      errDiv.style.padding = "20px";
+      errDiv.style.zIndex = "999999";
+      errDiv.style.fontFamily = "monospace";
+      errDiv.style.fontSize = "20px";
+      errDiv.style.maxWidth = "80vw";
+      errDiv.innerText = "PROMISE REJECTION: " + (event.reason && event.reason.stack ? event.reason.stack : event.reason);
+      document.body.appendChild(errDiv);
+    });
     'use strict';
 
     /* === PERSPECTIVE PROJECTION STATE === */
@@ -381,50 +412,6 @@
     const moonImg = new Image();
     moonImg.src = 'moon.png';
 
-    /* === FIELD STARS — Batched Buckets (Hipparcos Catalog) === */
-    const FIELD_STAR_BUCKETS = (function () {
-      const tempBuckets = Array.from({ length: 16 }, () => []);
-      const colors = [[192, 216, 255], [255, 184, 112], [255, 232, 144], [216, 232, 255]];
-      const alphas = [0.25, 0.50, 0.75, 1.0];
-
-      if (typeof REAL_STARS !== 'undefined') {
-        for (const star of REAL_STARS) {
-          const ra_deg = star[0], dec_deg = star[1], mag = star[2], bv = star[3];
-
-          const ra = ra_deg * Math.PI / 180;
-          const dec = dec_deg * Math.PI / 180;
-
-          const xe = Math.cos(dec) * Math.cos(ra);
-          const ye = Math.cos(dec) * Math.sin(ra);
-          const ze = Math.sin(dec);
-
-          // Mag 6.5 -> small size, Mag 0 -> large size
-          const size = Math.max(0.4, 2.8 - mag * 0.35);
-
-          const aIdx = mag < 2.5 ? 3 : mag < 4.5 ? 2 : mag < 5.5 ? 1 : 0;
-
-          // bv index mapping: B-V < 0 (blue), B-V > 1.4 (red)
-          let cIdx = 3; // default white-blue
-          if (bv < 0.0) cIdx = 0; // Blue
-          else if (bv > 1.4) cIdx = 1; // Orange/Red
-          else if (bv > 0.6) cIdx = 2; // Yellow
-
-          const bIdx = cIdx * 4 + aIdx;
-
-          tempBuckets[bIdx].push(xe, ye, ze, size);
-        }
-      }
-
-      return tempBuckets.map((arr, i) => {
-        const cIdx = Math.floor(i / 4);
-        const aIdx = i % 4;
-        const c = colors[cIdx];
-        return {
-          style: `rgba(${c[0]},${c[1]},${c[2]},${alphas[aIdx]})`,
-          data: new Float32Array(arr)
-        };
-      });
-    })();
 
     /* === STAR LOOKUP === */
     const STAR_BY_CN = {};
@@ -447,19 +434,46 @@
 
     /* === GLOW CACHE — OffscreenCanvas pre-rendered halos === */
     const GLOW_CACHE = {};
-    function getGlowCanvas(r, rgbStr, alpha) {
-      const key = `${Math.round(r)}_${rgbStr}_${alpha.toFixed(2)}`;
+    function getGlowCanvas(r, rgbStr, alpha, mag, baseRad) {
+      const key = mag !== undefined ? `${Math.round(r)}_${rgbStr}_${alpha.toFixed(2)}_${mag.toFixed(1)}` : `${Math.round(r)}_${rgbStr}_${alpha.toFixed(2)}`;
       if (GLOW_CACHE[key]) return GLOW_CACHE[key];
-      const sz = Math.ceil(r * 2) + 2;
+
+      let sz = Math.ceil(r * 2) + 2;
+      let spikeLen = 0;
+      if (mag !== undefined && mag <= 1 && baseRad) {
+        spikeLen = baseRad * 15; // 長度與 magToRadius 成正比
+        sz = Math.ceil(Math.max(r, spikeLen) * 2) + 2;
+      }
+
       const oc = new OffscreenCanvas(sz, sz);
       const ox = oc.getContext('2d');
       const cx = sz / 2, cy = sz / 2;
+
       const g = ox.createRadialGradient(cx, cy, 0, cx, cy, r);
       g.addColorStop(0, `rgba(${rgbStr},${alpha})`);
       g.addColorStop(0.4, `rgba(${rgbStr},${(alpha * 0.3).toFixed(3)})`);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ox.fillStyle = g;
       ox.beginPath(); ox.arc(cx, cy, r, 0, Math.PI * 2); ox.fill();
+
+      if (spikeLen > 0) {
+        ox.globalCompositeOperation = 'lighter';
+        ox.lineWidth = 1.0;
+        const sGrad = ox.createRadialGradient(cx, cy, 0, cx, cy, spikeLen);
+        sGrad.addColorStop(0, `rgba(${rgbStr},${alpha * 1.5})`);
+        sGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ox.strokeStyle = sGrad;
+
+        ox.beginPath();
+        ox.moveTo(cx - spikeLen, cy - spikeLen);
+        ox.lineTo(cx + spikeLen, cy + spikeLen);
+        ox.moveTo(cx - spikeLen, cy + spikeLen);
+        ox.lineTo(cx + spikeLen, cy - spikeLen);
+        ox.stroke();
+
+        ox.globalCompositeOperation = 'source-over';
+      }
+
       GLOW_CACHE[key] = oc;
       return oc;
     }
@@ -630,11 +644,25 @@
     /* === TOOLTIP === */
     const tooltip = document.getElementById('tooltip');
     let screenPos = [];
+    const SH_COLS = 32;
+    const SH_ROWS = 32;
+    let spatialHash = Array.from({ length: SH_COLS * SH_ROWS }, () => []);
+
     function doHover(mx, my) {
+      const cellW = window.innerWidth / SH_COLS;
+      const cellH = window.innerHeight / SH_ROWS;
+      const gx = Math.floor(mx / cellW);
+      const gy = Math.floor(my / cellH);
+
       let nearest = null, minD = 22;
-      for (const { x, y, star } of screenPos) {
-        const d = Math.hypot(x - mx, y - my);
-        if (d < minD) { minD = d; nearest = star; }
+      for (let y = Math.max(0, gy - 1); y <= Math.min(SH_ROWS - 1, gy + 1); y++) {
+        for (let x = Math.max(0, gx - 1); x <= Math.min(SH_COLS - 1, gx + 1); x++) {
+          const idx = y * SH_COLS + x;
+          for (const { x: sx, y: sy, star } of spatialHash[idx]) {
+            const d = Math.hypot(sx - mx, sy - my);
+            if (d < minD) { minD = d; nearest = star; }
+          }
+        }
       }
       if (nearest) {
         document.getElementById('tt-name').textContent = nearest.n + ' (' + nearest.cn + ')';
@@ -855,15 +883,152 @@
       }
     }
 
-    
+    function drawAtmosphericEffects(astro) {
+      const { sunRaDec, sunAltAz, sunAlt_deg, moonRaDec, lst_deg } = astro;
 
-    
+      // Calculate Moon Illumination and Interference
+      const sDec = sunRaDec.dec * Math.PI / 180;
+      const sRa = sunRaDec.ra * 15 * Math.PI / 180;
+      const mDec = moonRaDec.dec * Math.PI / 180;
+      const mRa = moonRaDec.ra * 15 * Math.PI / 180;
 
-    
+      const cosElong = Math.sin(sDec) * Math.sin(mDec) + Math.cos(sDec) * Math.cos(mDec) * Math.cos(sRa - mRa);
+      const phaseIllum = Math.max(0, (1 - cosElong) / 2);
 
-    
+      const moonAltAz = raDecToAltAz(moonRaDec.ra, moonRaDec.dec, lst_deg);
+      let moonInterference = 0;
+      if (moonAltAz.alt > toRad(-5)) {
+        moonInterference = Math.min(1, (moonAltAz.alt + toRad(5)) / toRad(15)) * phaseIllum;
+      }
 
-    
+      const sunP = altAzToXY(sunAltAz.alt, sunAltAz.az);
+
+      // 1. Zodiacal Light (黃道光)
+      const zlVisibility = Math.max(0, Math.min(1, (sunAlt_deg + 18) / 5)) * Math.max(0, Math.min(1, (-5 - sunAlt_deg) / 5));
+      if (zlVisibility > 0 && moonInterference < 0.5) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const alphaScale = zlVisibility * (1 - moonInterference * 2);
+
+        const eps = 23.439 * Math.PI / 180;
+        const lambda_sun = Math.atan2(Math.sin(sRa) * Math.cos(eps) + Math.tan(sDec) * Math.sin(eps), Math.cos(sRa));
+
+        for (let d = 5; d <= 90; d += 2) {
+          for (const sign of [-1, 1]) {
+            const lambda = lambda_sun + sign * d * Math.PI / 180;
+            let ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+            const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+
+            const ra_h = ((ra + 2 * Math.PI) % (2 * Math.PI)) * 12 / Math.PI;
+            const dec_deg = dec * 180 / Math.PI;
+
+            const altAz = raDecToAltAz(ra_h, dec_deg, lst_deg);
+            if (altAz.alt < 0) continue;
+
+            const p = altAzToXY(altAz.alt, altAz.az);
+            if (!p) continue;
+
+            const intensity = Math.max(0, 1 - d / 90) * 0.035 * alphaScale;
+            const radius = W * 0.15 * (1 - d / 120);
+
+            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
+            grad.addColorStop(0, `rgba(235, 240, 255, ${intensity})`);
+            grad.addColorStop(1, 'rgba(235, 240, 255, 0)');
+
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+
+      // 2. Gegenschein (對日照)
+      if (moonInterference < 0.2) {
+        const antiSunRa = (sunRaDec.ra + 12) % 24;
+        const antiSunDec = -sunRaDec.dec;
+        const antiSunAltAz = raDecToAltAz(antiSunRa, antiSunDec, lst_deg);
+
+        if (antiSunAltAz.alt > 0) {
+          const p = altAzToXY(antiSunAltAz.alt, antiSunAltAz.az);
+          if (p) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+
+            const altScale = Math.max(0, Math.min(1, antiSunAltAz.alt / toRad(20)));
+            const intensity = 0.06 * altScale * (1 - moonInterference * 5);
+
+            if (intensity > 0) {
+              const radiusX = W * 0.08;
+              const radiusY = W * 0.05;
+
+              ctx.translate(p.x, p.y);
+              ctx.rotate(antiSunAltAz.az);
+
+              const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, radiusX);
+              grad.addColorStop(0, `rgba(220, 230, 255, ${intensity})`);
+              grad.addColorStop(1, 'rgba(220, 230, 255, 0)');
+
+              ctx.scale(1, radiusY / radiusX);
+              ctx.fillStyle = grad;
+              ctx.beginPath();
+              ctx.arc(0, 0, radiusX, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+      }
+
+      // 3. Crepuscular rays (曙暮輝)
+      const rayVisibility = Math.max(0, 1 - Math.abs(sunAlt_deg - 2) / 8);
+      if (rayVisibility > 0 && sunP) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        const numRays = 10;
+        const rayLengthBase = W * 0.8;
+
+        for (let i = 0; i < numRays; i++) {
+          const angleBase = -Math.PI + (i / (numRays - 1)) * Math.PI;
+          const hash = Math.sin(i * 123.456 + sunAltAz.az * 10);
+          const rayAngle = angleBase + hash * 0.15;
+          const rayLength = rayLengthBase * (0.7 + 0.3 * Math.cos(hash * 43.21));
+
+          const x2 = sunP.x + Math.cos(rayAngle) * rayLength;
+          const y2 = sunP.y + Math.sin(rayAngle) * rayLength;
+
+          const rayWidth = 0.05 + 0.03 * hash;
+          const x3 = sunP.x + Math.cos(rayAngle + rayWidth) * rayLength;
+          const y3 = sunP.y + Math.sin(rayAngle + rayWidth) * rayLength;
+
+          const grad = ctx.createLinearGradient(sunP.x, sunP.y, x2, y2);
+          const alpha = 0.08 * rayVisibility * (0.5 + 0.5 * hash);
+          grad.addColorStop(0, `rgba(255, 230, 180, ${alpha})`);
+          grad.addColorStop(1, 'rgba(255, 210, 150, 0)');
+
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(sunP.x, sunP.y);
+          ctx.lineTo(x2, y2);
+          ctx.lineTo(x3, y3);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+
+
+
+
+
+
+
+
+
 
     /* === MILKY WAY — Image-based affine mesh projection ===
        milkyway.png: equirectangular galactic coords, GC centred,
@@ -880,17 +1045,32 @@
     function buildStarPositionCache(lst_deg) {
       _starPosCache = {};
       screenPos.length = 0;
+      for (let i = 0; i < 1024; i++) spatialHash[i].length = 0;
+
+      const cellW = window.innerWidth / SH_COLS;
+      const cellH = window.innerHeight / SH_ROWS;
+
       for (const star of STARS) {
         const rd = raDecToAltAz(star.ra, star.dec, lst_deg);
         const p = altAzToXY(rd.alt, rd.az);
         if (p) {
           _starPosCache[star.cn] = { x: p.x, y: p.y, alt: rd.alt };
-          screenPos.push({ x: p.x, y: p.y, star });
+          const posObj = { x: p.x, y: p.y, star };
+          screenPos.push(posObj);
+
+          if (p.x >= 0 && p.x < window.innerWidth && p.y >= 0 && p.y < window.innerHeight) {
+            const gx = Math.floor(p.x / cellW);
+            const gy = Math.floor(p.y / cellH);
+            const idx = gy * SH_COLS + gx;
+            if (idx >= 0 && idx < 1024) {
+              spatialHash[idx].push(posObj);
+            }
+          }
         }
       }
     }
 
-    
+
 
     const LABEL_COLORS = {
       star: [0.62, 0.74, 0.88],
@@ -902,15 +1082,15 @@
       zenith: [0.51, 0.67, 1.0]
     };
 
-    
 
-    
 
-    
 
-    
 
-    
+
+
+
+
+
 
     function colorToRgba(c, alpha) {
       return `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${alpha})`;
@@ -1373,8 +1553,8 @@
           lookEl = Math.max(toRad(-89.9), Math.min(toRad(89.9), lookEl));
           lookAz = ((lookAz % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
           // 調整阻尼為 0.92，讓滑行更長更順暢
-          velAz *= 0.97;
-          velEl *= 0.97;
+          velAz *= 0.98;
+          velEl *= 0.98;
         }
       }
 
@@ -1383,7 +1563,7 @@
         // 降低倍率，讓縮放更平緩細緻
         hFOV *= Math.pow(1.06, velZoom * 2.0);
         hFOV = Math.max(toRad(15), Math.min(toRad(150), hFOV));
-        velZoom *= 0.97; // 調整縮放阻尼，增加滑行距離
+        velZoom *= 0.98; // 調整縮放阻尼，增加滑行距離
       }
 
       if (dt > 0 && dt < 0.5) updateEntities(dt);
@@ -1425,6 +1605,7 @@
       const webglLabels = buildWebGLLabels(lst_deg, starVisibility);
 
       // 2. Render WebGL layer
+      if (window.updateStarLOD) window.updateStarLOD(hFOV);
       if (window.renderWebGL) {
         window.renderWebGL(
           ts, lst_deg, starVisibility,
@@ -1439,7 +1620,10 @@
       // Render crisp native labels on 2D Canvas overlay
       drawLabels2D(webglLabels);
       // drawBackground(toggles.atmosphere ? sunAlt_deg : -18, ts); // Handled before clearRect
-      if (toggles.atmosphere) drawHorizonGlow(sunAlt_deg, sunAltAz.az);
+      if (toggles.atmosphere) {
+        drawHorizonGlow(sunAlt_deg, sunAltAz.az);
+        drawAtmosphericEffects(astro);
+      }
 
       // Sun (draw below clouds/stars so it blends with sky naturally)
       // if (sunAltAz.alt > toRad(-0.5)) drawSun(sunAltAz.alt, sunAltAz.az); // Migrated to WebGL

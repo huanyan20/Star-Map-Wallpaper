@@ -39,6 +39,60 @@ async function loadStarCatalog() {
     return starCatalogPromise;
 }
 
+const STAR_CHUNKS = [
+    { url: 'assets/stars_chunk_1.bin', maxFov: 60 * Math.PI / 180, loaded: false, promise: null, pointsMesh: null },
+    { url: 'assets/stars_chunk_2.bin', maxFov: 30 * Math.PI / 180, loaded: false, promise: null, pointsMesh: null }
+];
+
+async function loadStarChunk(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Failed to load ${url}: ${resp.status}`);
+    const buffer = await resp.arrayBuffer();
+    const header = new DataView(buffer, 0, 32);
+    const magic =
+        String.fromCharCode(header.getUint8(0)) +
+        String.fromCharCode(header.getUint8(1)) +
+        String.fromCharCode(header.getUint8(2)) +
+        String.fromCharCode(header.getUint8(3));
+    if (magic !== 'STRB') throw new Error(`Invalid magic in ${url}`);
+    const count = header.getUint32(8, true);
+    const positionsOffset = header.getUint32(12, true);
+    const magOffset = header.getUint32(16, true);
+    const colorOffset = header.getUint32(20, true);
+    
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(buffer, positionsOffset, count * 3), 3));
+    geo.setAttribute('starMag', new THREE.BufferAttribute(new Float32Array(buffer, magOffset, count), 1));
+    geo.setAttribute('starColor', new THREE.BufferAttribute(new Uint8Array(buffer, colorOffset, count * 3), 3, true));
+    return geo;
+}
+
+window.updateStarLOD = function(hFOV) {
+    if (!scene || !starsMaterial) return;
+    for (const chunk of STAR_CHUNKS) {
+        if (hFOV <= chunk.maxFov) {
+            if (!chunk.loaded && !chunk.promise) {
+                // Not loaded, fetch it
+                chunk.promise = loadStarChunk(chunk.url).then(geo => {
+                    chunk.pointsMesh = new THREE.Points(geo, starsMaterial);
+                    chunk.pointsMesh.renderOrder = fieldStarsMesh ? fieldStarsMesh.renderOrder : 0;
+                    scene.add(chunk.pointsMesh);
+                    chunk.loaded = true;
+                }).catch(e => {
+                    console.error("Failed to load LOD chunk:", chunk.url, e);
+                    chunk.promise = null; // retry possible
+                });
+            } else if (chunk.loaded && chunk.pointsMesh) {
+                chunk.pointsMesh.visible = true;
+            }
+        } else {
+            if (chunk.loaded && chunk.pointsMesh) {
+                chunk.pointsMesh.visible = false;
+            }
+        }
+    }
+};
+
 async function loadLabelFont() {
     if (labelFontPromise) return labelFontPromise;
     labelFontPromise = Promise.all([
@@ -192,6 +246,9 @@ function setupOcean() {
         uniform vec2 resolution;
         uniform float lookAz;
         uniform float focalLen;
+        uniform vec3 lightDir;
+        uniform float lightIntensity;
+        uniform vec3 lightColor;
         varying float vAlpha;
         varying vec3 vWorldPos;
         varying float vDepth;
@@ -291,24 +348,25 @@ function setupOcean() {
             vec3 waterColor = mix(waterBody, skyReflection, R);
             
             // 2. Specular Glint (鏡面閃爍高光)
-            // 假設有一個主要的月光或星空背光光源
-            vec3 lightDir = normalize(vec3(0.6, 0.8, 0.4)); // 固定的傾斜光源
-            vec3 halfVector = normalize(lightDir + V);
-            float NdotH = max(0.0, dot(N, halfVector));
-            
-            // 高光緊縮程度
-            float shininess = 300.0; 
-            float specular = pow(NdotH, shininess);
-            
-            // 星點閃爍雜訊 (在波浪尖端產生微小晶瑩亮點)
-            float glintNoise = hash(floor(vWorldPos.xy * 80.0) + time * 2.0); // 隨時間閃動的高頻雜訊
-            specular *= (0.2 + glintNoise * 0.8);
-            
-            // 使用 bumpDistAttenuation 使遠處不要出現過度雜訊的高光
-            specular *= bumpDistAttenuation * 0.8; 
-            
-            // 疊加偏藍白的星光高光
-            waterColor += specular * vec3(0.8, 0.9, 1.0);
+            float specular = 0.0;
+            if (lightIntensity > 0.0) {
+                vec3 halfVector = normalize(lightDir + V);
+                float NdotH = max(0.0, dot(N, halfVector));
+                
+                // 高光緊縮程度
+                float shininess = 300.0; 
+                specular = pow(NdotH, shininess) * lightIntensity;
+                
+                // 星點閃爍雜訊 (在波浪尖端產生微小晶瑩亮點)
+                float glintNoise = hash(floor(vWorldPos.xy * 80.0) + time * 2.0); // 隨時間閃動的高頻雜訊
+                specular *= (0.2 + glintNoise * 0.8);
+                
+                // 使用 bumpDistAttenuation 使遠處不要出現過度雜訊的高光
+                specular *= bumpDistAttenuation * 0.8; 
+                
+                // 疊加光源顏色
+                waterColor += specular * lightColor;
+            }
             
             // 邊緣變暗處理
             float px = (vScreenUv.x - 0.5) * resolution.x;
@@ -356,7 +414,10 @@ function setupOcean() {
             lookAz: { value: 0 },
             lookEl: { value: 0 },
             focalLen: { value: 500 },
-            resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+            resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+            lightDir: { value: new THREE.Vector3(0, 0, 1) },
+            lightIntensity: { value: 0.0 },
+            lightColor: { value: new THREE.Vector3(0.8, 0.9, 1.0) }
         },
         transparent: true,
         depthWrite: false
@@ -996,6 +1057,48 @@ function setupStars(starCatalog) {
 
         fieldStarsMesh = new THREE.Points(fieldStarsGeo, starsMaterial);
         scene.add(fieldStarsMesh);
+    } else if (typeof REAL_STARS !== 'undefined') {
+        // Fallback to JS array REAL_STARS
+        const tempPositions = [];
+        const tempColors = [];
+        const tempMags = [];
+        const colors = [[192/255, 216/255, 1.0], [1.0, 184/255, 112/255], [1.0, 232/255, 144/255], [216/255, 232/255, 1.0]];
+
+        for (let i = 0; i < REAL_STARS.length; i++) {
+            const star = REAL_STARS[i];
+            const mag = star[2];
+            
+            // Only move dim stars to GPU to avoid duplicating bright stars which are handled in namedStarsMesh
+            if (mag <= 3.0) continue; 
+            
+            const ra_rad = star[0] * Math.PI / 180;
+            const dec_rad = star[1] * Math.PI / 180;
+            const bv = star[3];
+            
+            tempPositions.push(
+                Math.cos(dec_rad) * Math.cos(ra_rad),
+                Math.cos(dec_rad) * Math.sin(ra_rad),
+                Math.sin(dec_rad)
+            );
+            
+            tempMags.push(mag);
+            
+            let cIdx = 3; // default white-blue
+            if (bv < 0.0) cIdx = 0; // Blue
+            else if (bv > 1.4) cIdx = 1; // Orange/Red
+            else if (bv > 0.6) cIdx = 2; // Yellow
+            
+            const c = colors[cIdx];
+            tempColors.push(c[0], c[1], c[2]);
+        }
+
+        fieldStarsGeo = new THREE.BufferGeometry();
+        fieldStarsGeo.setAttribute('position', new THREE.Float32BufferAttribute(tempPositions, 3));
+        fieldStarsGeo.setAttribute('starColor', new THREE.Float32BufferAttribute(tempColors, 3));
+        fieldStarsGeo.setAttribute('starMag', new THREE.Float32BufferAttribute(tempMags, 1));
+
+        fieldStarsMesh = new THREE.Points(fieldStarsGeo, starsMaterial);
+        scene.add(fieldStarsMesh);
     }
 
     if (typeof STARS !== 'undefined') {
@@ -1451,6 +1554,7 @@ window.setupMoon = function() {
         
         varying vec2 vUv;
         varying vec3 vLightDir;
+        varying float vAltitude;
 
         void main() {
             vUv = uv;
@@ -1459,6 +1563,9 @@ window.setupMoon = function() {
             
             vec3 horiz = eqToHoriz * celestialPos;
             vec3 sunHoriz = eqToHoriz * sunPos;
+            
+            // 傳遞給 Fragment Shader 計算地平線折射
+            vAltitude = horiz.z;
             
             vec3 up = vec3(0.0, 0.0, 1.0);
             vec3 rawRight = cross(up, horiz);
@@ -1470,7 +1577,8 @@ window.setupMoon = function() {
             }
             vec3 top = normalize(cross(horiz, right));
             
-            float angularSize = 0.06; // Enlarged for screen visibility
+            // 放大平面尺寸以容納月暈光圈 (0.06 -> 0.18)
+            float angularSize = 0.18; 
             vec3 dir = horiz + (c.x * right + c.y * top) * (angularSize / 2.0);
             dir = normalize(dir);
             
@@ -1512,27 +1620,79 @@ window.setupMoon = function() {
         
         varying vec2 vUv;
         varying vec3 vLightDir;
+        varying float vAltitude;
         
         void main() {
-            vec2 c = vUv * 2.0 - 1.0;
-            float r2 = dot(c, c);
-            if (r2 > 1.0) discard;
+            vec2 c = vUv * 2.0 - 1.0; 
+            // 月球本體半徑為 0.3333 (因平面放大了3倍 0.06 -> 0.18)
+            float moonRadius = 0.3333;
+            float r = length(c);
             
-            // Per-pixel normal on the 3D sphere surface
-            vec3 vNormal = normalize(vec3(c.x, c.y, sqrt(1.0 - r2)));
+            // 3. 大氣折射顏色偏移 (Atmospheric Refraction Tint)
+            float altFactor = clamp(vAltitude * 8.0, 0.0, 1.0);
+            // 接近地平線時偏橙紅，高仰角時偏白
+            vec3 atmTint = mix(vec3(1.0, 0.55, 0.3), vec3(1.0, 1.0, 1.0), altFactor);
+            // 低仰角時稍微變暗
+            float atmAlpha = mix(0.75, 1.0, altFactor);
             
-            vec4 texColor = texture2D(map, vUv);
+            // 2. 月暈光圈 (Lunar Halo)
+            float haloDist = clamp((r - moonRadius) / (1.0 - moonRadius), 0.0, 1.0);
+            vec3 haloColor = mix(vec3(1.0, 0.6, 0.3), vec3(0.85, 0.95, 1.0), altFactor);
+            // 冰晶徑向漸層：內圈強，外圈柔和淡出
+            float haloAlpha = pow(1.0 - haloDist, 2.0) * 0.5 * atmAlpha; 
             
-            float diff = max(dot(vNormal, vLightDir), 0.0);
-            float ambient = 0.05;
+            if (r > moonRadius) {
+                gl_FragColor = vec4(haloColor * atmTint, haloAlpha);
+                return;
+            }
             
+            // 1. 月面環形山紋理與 UV 扭曲
+            vec2 moon_c = c / moonRadius;
+            float r2 = dot(moon_c, moon_c);
+            
+            // 建立 3D 球面法線
+            vec3 baseNormal = normalize(vec3(moon_c.x, moon_c.y, sqrt(max(0.0, 1.0 - r2))));
+            
+            // 稍微縮小採樣半徑，強制避開圖片自帶的黑色抗鋸齒邊緣 (Bypass black anti-aliased padding)
+            vec2 safe_c = moon_c * 0.92;
+            
+            // 原本的 2D 投影 UV
+            vec2 flatUv = safe_c * 0.5 + 0.5;
+            // 利用球面法線將平面的 UV 扭曲，產生 3D 球體邊緣的透視感
+            vec2 sphereUv = baseNormal.xy * 0.46 + 0.5; 
+            // 混合原本的 flat UV 與球體 UV，避免現有照片邊緣過度拉伸
+            vec2 finalUv = mix(flatUv, sphereUv, 0.4);
+            
+            vec4 texColor = texture2D(map, finalUv);
+            
+            // 提取影像真實 Alpha，確保沒有殘留的黑色邊界
+            float texTrueAlpha = texColor.a * smoothstep(0.02, 0.08, max(texColor.r, max(texColor.g, texColor.b)));
+            
+            // 將紋理的明暗轉為微法線偏移 (Bump mapping)，強化環形山邊緣的立體感
+            float bump = (texColor.r - 0.5) * 0.8;
+            vec3 vNormal = normalize(baseNormal + vec3(bump, bump, 0.0));
+            
+            // 修正 Lambert 漫反射在球體邊緣產生的「黑圈」(Dark rim) 假象
+            // 將法線稍微拉向鏡頭方向 (0,0,1)，讓滿月或亮面的邊緣也能接收到充足光線
+            vec3 finalNormal = normalize(mix(vNormal, vec3(0.0, 0.0, 1.0), 0.6));
+            
+            // Lambert 漫反射 + 陰影過渡 (Phase Terminator)
+            float NdotL = dot(finalNormal, vLightDir);
+            float diff = smoothstep(-0.05, 0.2, NdotL);
+            float ambient = 0.02; 
             float lighting = diff + ambient;
-            vec3 finalColor = texColor.rgb * lighting;
             
-            // Apply slight bloom/glow at the very edge to soften the discard
-            float edgeSoftness = smoothstep(1.0, 0.95, r2);
+            vec3 bodyColor = texColor.rgb * lighting * atmTint;
             
-            gl_FragColor = vec4(finalColor, texColor.a * edgeSoftness);
+            // 抗鋸齒柔和邊緣
+            float edgeSoftness = smoothstep(1.0, 0.92, r2);
+            float bodyAlpha = texTrueAlpha * atmAlpha * edgeSoftness;
+            
+            // 疊加月球本體與背後的月暈
+            vec3 finalRGB = mix(haloColor * atmTint, bodyColor, bodyAlpha);
+            float finalAlpha = max(haloAlpha, bodyAlpha);
+            
+            gl_FragColor = vec4(finalRGB, finalAlpha);
         }
     `;
 
@@ -1594,12 +1754,60 @@ function renderWebGL(ts, lst_deg, starVisibility, topRGB, midRGB, horRGB, hy, sc
         updateSkyGeometry();
     }
 
+    let currentLightDir = new THREE.Vector3(0, 0, 1);
+    let currentLightIntensity = 0.0;
+    let lightColor = new THREE.Vector3(0.8, 0.9, 1.0);
+
+    if (sunCoords) {
+        const sDec = sunCoords.dec * Math.PI / 180;
+        const sRa = sunCoords.ra * 15 * Math.PI / 180;
+        const sunPos = new THREE.Vector3(
+            Math.cos(sDec) * Math.cos(sRa),
+            Math.cos(sDec) * Math.sin(sRa),
+            Math.sin(sDec)
+        );
+        sunPos.applyMatrix3(m);
+        if (sunPos.z > -0.05) {
+            currentLightDir = sunPos.normalize();
+            currentLightIntensity = Math.min(1.0, (sunPos.z + 0.05) * 20.0);
+            lightColor.set(1.0, 0.9, 0.8);
+        }
+    }
+    
+    if (currentLightIntensity < 0.5 && moonCoords) {
+        const mDec = moonCoords.dec * Math.PI / 180;
+        const mRa = moonCoords.ra * 15 * Math.PI / 180;
+        const moonPos = new THREE.Vector3(
+            Math.cos(mDec) * Math.cos(mRa),
+            Math.cos(mDec) * Math.sin(mRa),
+            Math.sin(mDec)
+        );
+        moonPos.applyMatrix3(m);
+        if (moonPos.z > 0.0) {
+            const moonInt = Math.min(1.0, moonPos.z * 10.0) * 0.8;
+            if (moonInt > currentLightIntensity) {
+                currentLightDir = moonPos.normalize();
+                currentLightIntensity = moonInt;
+                lightColor.set(0.8, 0.9, 1.0);
+            }
+        }
+    }
+
     if (window.oceanMaterial && horRGB) {
         window.oceanMaterial.uniforms.horRGB.value.set(horRGB[0] / 255, horRGB[1] / 255, horRGB[2] / 255);
         window.oceanMaterial.uniforms.time.value = ts / 1000.0;
         window.oceanMaterial.uniforms.lookAz.value = lookAz;
         window.oceanMaterial.uniforms.lookEl.value = lookEl;
         window.oceanMaterial.uniforms.focalLen.value = focalLen();
+        
+        if (!window.oceanMaterial.uniforms.lightDir) {
+            window.oceanMaterial.uniforms.lightDir = { value: new THREE.Vector3(0, 0, 1) };
+            window.oceanMaterial.uniforms.lightIntensity = { value: 0.0 };
+            window.oceanMaterial.uniforms.lightColor = { value: new THREE.Vector3(0.8, 0.9, 1.0) };
+        }
+        window.oceanMaterial.uniforms.lightDir.value.copy(currentLightDir);
+        window.oceanMaterial.uniforms.lightIntensity.value = currentLightIntensity;
+        window.oceanMaterial.uniforms.lightColor.value.copy(lightColor);
     }
 
     if (typeof toggles !== 'undefined') {

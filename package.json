@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build:assets": "node scripts/build_assets.js",
+    "build:tycho2": "node scripts/build_tycho2.js",
     "serve": "npx http-server . -p 4173 -c-1",
     "test:smoke": "node test-puppeteer.js"
   },
