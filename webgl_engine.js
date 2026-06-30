@@ -227,7 +227,8 @@ function setupOcean() {
             float pr = sx*rx + sy*ry + sz*rz;
             float pu = sx*ux + sy*uy + sz*uz;
             
-            float k = 2.0 / (1.0 + depth);
+            float safeDepth = max(depth, -0.999);
+            float k = 2.0 / (1.0 + safeDepth);
             float px = pr * k * focalLen;
             float py = pu * k * focalLen;
             
@@ -487,6 +488,7 @@ async function initWebGL() {
     setupGrids();
     setupLabelLayer(labelFont);
     setupOcean();
+    if (window.setupSun) window.setupSun();
     if (window.setupMoon) window.setupMoon();
 
     const skyVertexShader = `
@@ -670,7 +672,8 @@ function setupShaders() {
             float pr = sx*rx + sy*ry;
             float pu = sx*ux + sy*uy + sz*uz;
             
-            float k = 2.0 / (1.0 + depth);
+            float safeDepth = max(depth, -0.999);
+            float k = 2.0 / (1.0 + safeDepth);
             float px = pr * k * focalLen;
             float py = pu * k * focalLen;
             
@@ -1598,6 +1601,10 @@ window.setupMoon = function() {
             float uz = cos(lookEl);
             
             vec3 viewFwd = vec3(lx, ly, lz);
+            if (dot(normalize(horiz), viewFwd) < 0.0) {
+                gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+                return;
+            }
             vec3 viewRight = vec3(rx, ry, 0.0);
             vec3 viewUp = vec3(ux, uy, uz);
             
@@ -1828,6 +1835,22 @@ function renderWebGL(ts, lst_deg, starVisibility, topRGB, midRGB, horRGB, hy, sc
         );
     }
 
+    
+    if (window.sunMesh && sunCoords) {
+        const sDec = sunCoords.dec * Math.PI / 180;
+        const sRa = sunCoords.ra * 15 * Math.PI / 180;
+        window.sunMaterial.uniforms.celestialPos.value.set(
+            Math.cos(sDec) * Math.cos(sRa),
+            Math.cos(sDec) * Math.sin(sRa),
+            Math.sin(sDec)
+        );
+        window.sunMaterial.uniforms.eqToHoriz.value.copy(m);
+        window.sunMaterial.uniforms.lookAz.value = lookAz;
+        window.sunMaterial.uniforms.lookEl.value = lookEl;
+        window.sunMaterial.uniforms.focalLen.value = focalLen();
+        window.sunMaterial.uniforms.time.value = ts / 1000.0;
+    }
+
     if (window.moonMesh && moonCoords) {
         const mDec = moonCoords.dec * Math.PI / 180;
         const mRa = moonCoords.ra * 15 * Math.PI / 180;
@@ -1859,3 +1882,130 @@ function renderWebGL(ts, lst_deg, starVisibility, topRGB, midRGB, horRGB, hy, sc
 window.initWebGL = initWebGL;
 window.renderWebGL = renderWebGL;
 window.setupStars = setupStars;
+
+window.setupSun = function() { 
+    const sunGeo = new THREE.PlaneGeometry(1, 1); 
+    const sunVertexShader = ` 
+        uniform mat3 eqToHoriz; 
+        uniform float lookAz; 
+        uniform float lookEl; 
+        uniform float focalLen; 
+        uniform vec3 celestialPos; 
+ 
+        varying vec2 vUv; 
+        varying float vAltitude; 
+ 
+        void main() { 
+            vUv = uv; 
+            vec2 c = uv * 2.0 - 1.0; 
+             
+            vec3 horiz = eqToHoriz * celestialPos; 
+             
+            vec3 up = vec3(0.0, 0.0, 1.0); 
+            vec3 rawRight = cross(up, horiz); 
+            vec3 right = length(rawRight) < 0.001 ? vec3(1.0, 0.0, 0.0) : normalize(rawRight); 
+            vec3 top = normalize(cross(horiz, right)); 
+             
+            float angularSize = 2.5;  
+            vec3 dir = horiz + (c.x * right + c.y * top) * (angularSize / 2.0); 
+            dir = normalize(dir); 
+            vAltitude = dir.z; 
+             
+            float lx = sin(lookAz) * cos(lookEl); 
+            float ly = cos(lookAz) * cos(lookEl); 
+            float lz = sin(lookEl); 
+             
+            float rx = cos(lookAz); 
+            float ry = -sin(lookAz); 
+             
+            float ux = ry * lz; 
+            float uy = -rx * lz; 
+            float uz = cos(lookEl); 
+             
+            vec3 viewFwd = vec3(lx, ly, lz); 
+            if (dot(normalize(horiz), viewFwd) < 0.0) { 
+                gl_Position = vec4(2.0, 2.0, 2.0, 1.0); 
+                return; 
+            } 
+            vec3 viewRight = vec3(rx, ry, 0.0); 
+            vec3 viewUp = vec3(ux, uy, uz); 
+             
+            float p_fwd = dot(dir, viewFwd); 
+            float p_right = dot(dir, viewRight); 
+            float p_up = dot(dir, viewUp); 
+             
+            float rho2 = (1.0 - p_fwd) / max(0.0001, 1.0 + p_fwd); 
+            float k = 1.0 + rho2; 
+             
+            float px = p_right * k * focalLen; 
+            float py = p_up * k * focalLen; 
+             
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(px, py, 0.0, 1.0); 
+        } 
+    `; 
+ 
+    const sunFragmentShader = ` 
+        uniform float time;
+        varying vec2 vUv; 
+        varying float vAltitude; 
+ 
+        void main() { 
+            vec2 c = vUv * 2.0 - 1.0; 
+            float r = length(c); 
+            if (r > 1.0) discard; 
+            
+            float angle = atan(c.y, c.x);
+             
+            // Core sun disk 
+            float coreRadius = 0.007; 
+             
+            // Color shifts towards orange/red near horizon 
+            float altFactor = smoothstep(-0.05, 0.2, vAltitude); 
+            vec3 sunColor = mix(vec3(1.0, 0.4, 0.2), vec3(1.0, 0.98, 0.95), altFactor); 
+            vec3 haloColor = mix(vec3(1.0, 0.3, 0.1), vec3(1.0, 0.9, 0.8), altFactor); 
+             
+            float core = 1.0 - smoothstep(coreRadius, coreRadius + 0.001, r); 
+            float halo = pow(max(0.0, 1.0 - r), 5.0) * 0.8; 
+             
+            float rayStrength = max(0.0, 1.0 - abs(vAltitude) * 5.0); 
+            float rayPattern = sin(angle * 8.0 - time * 0.1) * 0.5 + 0.5;
+            rayPattern *= sin(angle * 13.0 + 1.2 + time * 0.05) * 0.5 + 0.5;
+            rayPattern *= sin(angle * 5.0 - 0.5 - time * 0.15) * 0.5 + 0.5;
+            
+            float rayFade = pow(max(0.0, 1.0 - r * 1.2), 2.0);
+            float rays = rayPattern * rayFade * rayStrength * 0.5;
+             
+            vec3 finalColor = mix(haloColor, vec3(1.0, 1.0, 1.0), core); 
+            finalColor += haloColor * rays;
+            float alpha = min(1.0, core + halo + rays); 
+             
+            // Soft horizon fade out 
+            float horizonFade = smoothstep(-0.04, 0.02, vAltitude); 
+             
+            gl_FragColor = vec4(finalColor, alpha * horizonFade); 
+        } 
+    `; 
+ 
+    window.sunMaterial = new THREE.ShaderMaterial({ 
+        vertexShader: sunVertexShader, 
+        fragmentShader: sunFragmentShader, 
+        uniforms: { 
+            eqToHoriz: { value: new THREE.Matrix3() }, 
+            lookAz: { value: 0.0 }, 
+            lookEl: { value: 0.0 }, 
+            focalLen: { value: 1.0 }, 
+            celestialPos: { value: new THREE.Vector3() },
+            time: { value: 0.0 }
+        }, 
+        transparent: true, 
+        depthWrite: false, 
+        depthTest: false, 
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending 
+    }); 
+ 
+    window.sunMesh = new THREE.Mesh(sunGeo, window.sunMaterial); 
+    window.sunMesh.renderOrder = 5; 
+    window.sunMesh.frustumCulled = false; 
+    scene.add(window.sunMesh); 
+}; 

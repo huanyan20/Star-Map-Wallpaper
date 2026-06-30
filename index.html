@@ -335,7 +335,7 @@
   <script src="constellations_data.js"></script>
   <script src="stars_data.js"></script>
   <script src="real_stars.js"></script>
-  <script src="webgl_engine.js"></script>
+  <script src="webgl_engine.js?v=4"></script>
   <script src="astronomy_engine.js"></script>
   <script>
     window.onerror = function (msg, src, lineno, colno, error) {
@@ -913,8 +913,9 @@
         const eps = 23.439 * Math.PI / 180;
         const lambda_sun = Math.atan2(Math.sin(sRa) * Math.cos(eps) + Math.tan(sDec) * Math.sin(eps), Math.cos(sRa));
 
-        for (let d = 5; d <= 90; d += 2) {
-          for (const sign of [-1, 1]) {
+        for (const sign of [-1, 1]) {
+          const points = [];
+          for (let d = 5; d <= 90; d += 4) {
             const lambda = lambda_sun + sign * d * Math.PI / 180;
             let ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
             const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
@@ -923,22 +924,57 @@
             const dec_deg = dec * 180 / Math.PI;
 
             const altAz = raDecToAltAz(ra_h, dec_deg, lst_deg);
-            if (altAz.alt < 0) continue;
+            if (altAz.alt < -0.1) continue;
 
             const p = altAzToXY(altAz.alt, altAz.az);
-            if (!p) continue;
+            if (p) points.push({ x: p.x, y: p.y, d });
+          }
 
-            const intensity = Math.max(0, 1 - d / 90) * 0.035 * alphaScale;
-            const radius = W * 0.15 * (1 - d / 120);
+          if (points.length > 2) {
+            ctx.beginPath();
+            // Forward edge
+            for (let i = 0; i < points.length; i++) {
+              const pt = points[i];
+              let dx = 0, dy = 0;
+              if (i < points.length - 1) {
+                dx = points[i + 1].x - pt.x; dy = points[i + 1].y - pt.y;
+              } else {
+                dx = pt.x - points[i - 1].x; dy = pt.y - points[i - 1].y;
+              }
+              const len = Math.hypot(dx, dy) || 1;
+              const nx = -dy / len; const ny = dx / len;
+              const radius = W * 0.15 * (1 - pt.d / 100);
+              ctx.lineTo(pt.x + nx * radius, pt.y + ny * radius);
+            }
+            // Backward edge
+            for (let i = points.length - 1; i >= 0; i--) {
+              const pt = points[i];
+              let dx = 0, dy = 0;
+              if (i > 0) {
+                dx = pt.x - points[i - 1].x; dy = pt.y - points[i - 1].y;
+              } else {
+                dx = points[i + 1].x - pt.x; dy = points[i + 1].y - pt.y;
+              }
+              const len = Math.hypot(dx, dy) || 1;
+              const nx = -dy / len; const ny = dx / len;
+              const radius = W * 0.15 * (1 - pt.d / 100);
+              ctx.lineTo(pt.x - nx * radius, pt.y - ny * radius);
+            }
+            ctx.closePath();
 
-            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
-            grad.addColorStop(0, `rgba(235, 240, 255, ${intensity})`);
+            const startP = points[0];
+            const endP = points[points.length - 1];
+            const grad = ctx.createLinearGradient(startP.x, startP.y, endP.x, endP.y);
+            grad.addColorStop(0, `rgba(235, 240, 255, ${0.1 * alphaScale})`);
             grad.addColorStop(1, 'rgba(235, 240, 255, 0)');
 
+            ctx.shadowColor = `rgba(235, 240, 255, ${0.1 * alphaScale})`;
+            ctx.shadowBlur = 40;
+
             ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
             ctx.fill();
+
+            ctx.shadowBlur = 0; // reset
           }
         }
         ctx.restore();
