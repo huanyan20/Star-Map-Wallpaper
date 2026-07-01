@@ -3,3 +3,7 @@ node_modules/
 
 temp/
 codebase-memory-mcp-main/
+.archive/
+dist/
+*.bak
+assets/

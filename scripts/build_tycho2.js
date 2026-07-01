@@ -5,7 +5,7 @@ const zlib = require('zlib');
 const readline = require('readline');
 
 const root = path.resolve(__dirname, '..');
-const assetsDir = path.join(root, 'assets');
+const assetsDir = path.join(root, 'public', 'assets');
 const tempDir = path.join(root, 'temp');
 const tycho2BaseUrl = 'https://cdsarc.cds.unistra.fr/ftp/I/259/';
 const numParts = 20;

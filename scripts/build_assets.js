@@ -3,7 +3,7 @@ const path = require('path');
 const generateBMFont = require('msdf-bmfont-xml');
 
 const root = path.resolve(__dirname, '..');
-const assetsDir = path.join(root, 'assets');
+const assetsDir = path.join(root, 'public', 'assets');
 const fontPath = process.env.STAR_LABEL_FONT || 'C:\\Windows\\Fonts\\NotoSansTC-VF.ttf';
 
 function ensureDir(dir) {
@@ -98,7 +98,7 @@ function colorForBv(bv) {
 }
 
 function buildStarsBin() {
-  const source = fs.readFileSync(path.join(root, 'real_stars.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'src', 'data', 'real_stars.js'), 'utf8');
   const stars = parseAssignedArray(source, 'REAL_STARS');
   const count = stars.length;
   const headerBytes = 32;
@@ -140,9 +140,9 @@ function buildStarsBin() {
 }
 
 function collectLabelCharset() {
-  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  const stars = parseAssignedArray(html, 'STARS');
-  const conNames = parseAssignedObject(html, 'CON_NAMES');
+  const starsData = fs.readFileSync(path.join(root, 'src', 'data', 'stars_data.js'), 'utf8');
+  const stars = parseAssignedArray(starsData, 'STARS');
+  const conNames = parseAssignedObject(starsData, 'CON_NAMES');
   const strings = new Set(['0123456789.-+ °', 'NSEW', '北南東西', '天頂', '黃道 Ecliptic']);
 
   for (const star of stars) {
