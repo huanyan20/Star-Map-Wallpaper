@@ -1,5 +1,4 @@
 import './bootstrap.js';
-
 import './vendor/astronomy.browser.js';
 import './vendor/astronomy_engine.js';
 import './webgl/globals.js';

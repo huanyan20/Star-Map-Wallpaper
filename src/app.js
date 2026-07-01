@@ -9,7 +9,7 @@ import { LAT_DEG, LON_DEG, LAT_RAD, toRad, toDeg, julianDate, gmst, getLST, raDe
 
 
 const moonImg = new Image();
-moonImg.src = 'moon.png';
+moonImg.src = 'assets/moon.png';
 
 /* === STAR LOOKUP === */
 const STAR_BY_CN = {};

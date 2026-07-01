@@ -1,6 +1,6 @@
 (function (f) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = f();
+    module.exports = f(); if (typeof window !== 'undefined') window.Astronomy = module.exports;
   } else if (typeof define === 'function' && define.amd) {
     define([], f);
   } else {
