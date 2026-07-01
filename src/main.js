@@ -1,0 +1,13 @@
+import './bootstrap.js';
+
+import './vendor/astronomy.browser.js';
+import './vendor/astronomy_engine.js';
+import './webgl/globals.js';
+import './webgl/stars.js';
+import './webgl/labels.js';
+import './webgl/ocean.js';
+import './webgl/sky.js';
+import './webgl/grids.js';
+import './webgl/render.js';
+import './webgl/init.js';
+import './app.js';

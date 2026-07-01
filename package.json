@@ -3,16 +3,23 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "build:assets": "node scripts/build_assets.js",
     "build:tycho2": "node scripts/build_tycho2.js",
     "format": "prettier --write \"**/*.{js,json,html,css}\"",
-    "serve": "npx http-server . -p 4173 -c-1",
     "test:smoke": "node test-puppeteer.js"
   },
   "devDependencies": {
     "http-server": "^14.1.1",
     "msdf-bmfont-xml": "^2.8.0",
     "prettier": "^3.0.0",
-    "puppeteer": "^24.12.1"
+    "puppeteer": "^24.12.1",
+    "vite": "^8.1.2",
+    "vite-plugin-glsl": "^1.6.0"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
   }
 }
