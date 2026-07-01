@@ -1,7 +1,7 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 let code = fs.readFileSync('webgl_engine.js', 'utf8');
 
-const setupLinesCode = 
+const setupLinesCode = `
     if (typeof CONSTELLATION_SEGMENTS !== 'undefined') {
         const numLines = CONSTELLATION_SEGMENTS.length;
         const linePositions = new Float32Array(numLines * 2 * 3); // 2 vertices per segment
@@ -25,7 +25,7 @@ const setupLinesCode =
         const lineGeo = new THREE.BufferGeometry();
         lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
         
-        const lineVertexShader = \\\
+        const lineVertexShader = \\\`
             uniform mat3 eqToHoriz;
             uniform float lookAz;
             uniform float lookEl;
@@ -68,16 +68,16 @@ const setupLinesCode =
                 
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(px, py, 0.0, 1.0);
             }
-        \\\;
+        \\\`;
         
-        const lineFragmentShader = \\\
+        const lineFragmentShader = \\\`
             varying float vDepth;
             uniform float starVisibility;
             void main() {
                 if (vDepth < -0.4) discard;
                 gl_FragColor = vec4(0.4, 0.6, 1.0, 0.35 * starVisibility);
             }
-        \\\;
+        \\\`;
         
         window.constellationLinesMaterial = new THREE.ShaderMaterial({
             vertexShader: lineVertexShader,
@@ -91,12 +91,12 @@ const setupLinesCode =
         const lineMesh = new THREE.LineSegments(lineGeo, window.constellationLinesMaterial);
         scene.add(lineMesh);
     }
-;
+`;
 
 // Inject into setupStars() right at the end
 code = code.replace(
-    /if \(typeof STARS \!== 'undefined'\) \{[\s\S]*?scene\.add\(namedStarsMesh\);\n\s*\}/,
-    match => match + "\n" + setupLinesCode
+  /if \(typeof STARS \!== 'undefined'\) \{[\s\S]*?scene\.add\(namedStarsMesh\);\n\s*\}/,
+  (match) => match + '\n' + setupLinesCode,
 );
 
 fs.writeFileSync('webgl_engine.js', code);

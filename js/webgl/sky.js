@@ -1,13 +1,13 @@
 function updateSkyGeometry() {
-    if (!window.skyMesh || (skyW === window.innerWidth && skyH === window.innerHeight)) return;
-    skyW = window.innerWidth;
-    skyH = window.innerHeight;
-    window.skyMesh.geometry.dispose();
-    window.skyMesh.geometry = new THREE.PlaneGeometry(skyW, skyH);
+  if (!window.skyMesh || (skyW === window.innerWidth && skyH === window.innerHeight)) return;
+  skyW = window.innerWidth;
+  skyH = window.innerHeight;
+  window.skyMesh.geometry.dispose();
+  window.skyMesh.geometry = new THREE.PlaneGeometry(skyW, skyH);
 }
 
 function setupShaders() {
-    const vertexShader = `
+  const vertexShader = `
         uniform mat3 eqToHoriz;
         uniform float lookAz;
         uniform float lookEl;
@@ -107,8 +107,8 @@ function setupShaders() {
             // 稍微放大基礎星星尺寸，讓暗星在 1080p 有足夠像素能亮起 (2.5 -> 3.5)
             float ptSize = max(5.5, baseIntensity * 5.0) * pow(zoomScale, 0.3);
             if (starMag < 3.0) {
-                // 減少亮星尺寸擴張，縮小與暗星的體積差距
-                ptSize += pow(max(0.0, 3.0 - starMag), 1.5) * 1.5 * pow(zoomScale, 0.9); 
+                // 大幅縮小亮星的光暈佔用的實體大小
+                ptSize += pow(max(0.0, 3.0 - starMag), 1.2) * 1.0 * pow(zoomScale, 0.9); 
             }
             ptSize *= clamp(starVisibility * 2.5, 0.3, 1.2);
             
@@ -151,7 +151,7 @@ function setupShaders() {
         }
     `;
 
-    const fragmentShader = `
+  const fragmentShader = `
         uniform float time;
         varying vec3 vColor;
         varying float vAlpha;
@@ -167,9 +167,9 @@ function setupShaders() {
 
         float noise(vec2 p, float t) {
             float phase = hash(p);
-            // fBm-like oscillation
-            float n1 = sin(t * (5.0 + phase * 10.0) + phase * 6.28);
-            float n2 = sin(t * (11.0 + phase * 15.0) - phase * 3.14) * 0.5;
+            // fBm-like oscillation (降低頻率)
+            float n1 = sin(t * (2.5 + phase * 5.0) + phase * 6.28);
+            float n2 = sin(t * (5.0 + phase * 7.5) - phase * 3.14) * 0.5;
             return (n1 + n2) / 1.5;
         }
 
@@ -184,7 +184,7 @@ function setupShaders() {
             
             // Chromatic Scintillation (Twinkling)
             // Higher airmass = more scintillation. Bright stars show more color shifts.
-            float twinkleAmp = min(0.8, 0.1 + 0.08 * vAirMass); 
+            float twinkleAmp = min(0.45, 0.05 + 0.04 * vAirMass); 
             float tNoise1 = noise(vPosHash, time);
             float tNoise2 = noise(vPosHash + vec2(1.0), time * 1.1); // Slightly offset for color
             float twinkle = 1.0 + twinkleAmp * tNoise1;
@@ -217,50 +217,54 @@ function setupShaders() {
             // Stellarium-style Point Spread Function (PSF)
             // 高光核心 (Highlight Core)
             float core = exp(-r * 35.0) * 1.2;
+            if (vMag < 2.0) {
+                core += exp(-r * 20.0) * clamp(2.0 - vMag, 0.0, 2.0) * 1.5; // 增強極亮星的核心
+            }
             
-            // 巨大柔和邊緣 (Large Soft Halo) + 十字星芒 (Cross Lens Flare)
+            // 柔和邊緣 (Soft Halo) + 十字星芒 (Cross Lens Flare)
             float halo = 0.0;
             float flare = 0.0;
             if (vMag < 3.0) {
-                float intensity = clamp(3.0 - vMag, 0.0, 3.0);
-                halo = exp(-r * 15.0) * 0.03 * intensity;
-                halo += exp(-r * 10.0) * 0.015 * intensity; 
+                // 再次大幅降低亮星光暈範圍與強度
+                float intensity = pow(clamp(3.0 - vMag, 0.0, 3.0), 1.2);
+                halo = exp(-r * 40.0) * 0.02 * intensity;
+                halo += exp(-r * 25.0) * 0.01 * intensity; 
                 
                 // 十字星芒 (Lens Flare)
-                float crossX = exp(-abs(pt.x) * 85.0) * exp(-abs(pt.y) * 12.0);
-                float crossY = exp(-abs(pt.y) * 85.0) * exp(-abs(pt.x) * 12.0);
-                flare = (crossX + crossY) * 0.04 * intensity;
+                float crossX = exp(-abs(pt.x) * 120.0) * exp(-abs(pt.y) * 20.0);
+                float crossY = exp(-abs(pt.y) * 120.0) * exp(-abs(pt.x) * 20.0);
+                flare = (crossX + crossY) * 0.03 * intensity;
             }
             
             // Combine with distance to center mask
             float mask = 1.0 - smoothstep(0.45, 0.5, r);
-            float alpha = (core + halo + flare) * vAlpha * twinkle * 1.5 * mask;
+            float alpha = (core + halo + flare) * vAlpha * twinkle * 1.8 * mask;
             
             gl_FragColor = vec4(finalColor * alpha, alpha);
         }
     `;
 
-    starsMaterial = new THREE.ShaderMaterial({
-        vertexShader: vertexShader,
-        fragmentShader: fragmentShader,
-        uniforms: {
-            eqToHoriz: { value: new THREE.Matrix3() },
-            lookAz: { value: Math.PI },
-            lookEl: { value: 0 },
-            focalLen: { value: 500 },
-            time: { value: 0 },
-            starVisibility: { value: 1.0 },
-            dpr: { value: window.devicePixelRatio || 1.0 },
-            currentFov: { value: 3.14159 },
-            chunkMaxFov: { value: 100.0 }
-        },
-        transparent: true,
-        depthWrite: false,
-        premultipliedAlpha: true,
-        blending: THREE.AdditiveBlending
-    });
+  starsMaterial = new THREE.ShaderMaterial({
+    vertexShader: vertexShader,
+    fragmentShader: fragmentShader,
+    uniforms: {
+      eqToHoriz: { value: new THREE.Matrix3() },
+      lookAz: { value: Math.PI },
+      lookEl: { value: 0 },
+      focalLen: { value: 500 },
+      time: { value: 0 },
+      starVisibility: { value: 1.0 },
+      dpr: { value: window.devicePixelRatio || 1.0 },
+      currentFov: { value: 3.14159 },
+      chunkMaxFov: { value: 100.0 },
+    },
+    transparent: true,
+    depthWrite: false,
+    premultipliedAlpha: true,
+    blending: THREE.AdditiveBlending,
+  });
 
-    const gridVertexShader = `
+  const gridVertexShader = `
         uniform mat3 eqToHoriz;
         uniform float lookAz;
         uniform float lookEl;
@@ -314,7 +318,7 @@ function setupShaders() {
         }
     `;
 
-    const gridFragmentShader = `
+  const gridFragmentShader = `
         varying float vDepth;
         varying float vMidDepth;
         varying float vSz;
@@ -358,7 +362,7 @@ function setupShaders() {
         }
     `;
 
-    const spindleVertexShader = `
+  const spindleVertexShader = `
         uniform mat3 eqToHoriz;
         uniform float lookAz;
         uniform float lookEl;
@@ -404,7 +408,7 @@ function setupShaders() {
         }
     `;
 
-    const spindleFragmentShader = `
+  const spindleFragmentShader = `
         varying float vDepth;
         varying float vMidDepth;
         varying vec2 vUv;
@@ -461,60 +465,65 @@ function setupShaders() {
         }
     `;
 
-    window.createSpindleMaterial = function (colorHex, centerFadeVal = 1.0, baseAlphaVal = 0.45) {
-        const color = new THREE.Color(colorHex);
-        return new THREE.ShaderMaterial({
-            vertexShader: spindleVertexShader,
-            fragmentShader: spindleFragmentShader,
-            uniforms: {
-                eqToHoriz: starsMaterial.uniforms.eqToHoriz,
-                lookAz: starsMaterial.uniforms.lookAz,
-                lookEl: starsMaterial.uniforms.lookEl,
-                focalLen: starsMaterial.uniforms.focalLen,
-                starVisibility: starsMaterial.uniforms.starVisibility,
-                lineColor: { value: color },
-                centerFade: { value: centerFadeVal },
-                baseAlpha: { value: baseAlphaVal }
-            },
-            transparent: true,
-            depthWrite: false,
-            premultipliedAlpha: true,
-            blending: THREE.AdditiveBlending,
-            extensions: { derivatives: true }
-        });
-    };
+  window.createSpindleMaterial = function (colorHex, centerFadeVal = 1.0, baseAlphaVal = 0.45) {
+    const color = new THREE.Color(colorHex);
+    return new THREE.ShaderMaterial({
+      vertexShader: spindleVertexShader,
+      fragmentShader: spindleFragmentShader,
+      uniforms: {
+        eqToHoriz: starsMaterial.uniforms.eqToHoriz,
+        lookAz: starsMaterial.uniforms.lookAz,
+        lookEl: starsMaterial.uniforms.lookEl,
+        focalLen: starsMaterial.uniforms.focalLen,
+        starVisibility: starsMaterial.uniforms.starVisibility,
+        lineColor: { value: color },
+        centerFade: { value: centerFadeVal },
+        baseAlpha: { value: baseAlphaVal },
+      },
+      transparent: true,
+      depthWrite: false,
+      premultipliedAlpha: true,
+      blending: THREE.AdditiveBlending,
+      extensions: { derivatives: true },
+    });
+  };
 
-    window.createGridMaterial = function (colorHex, isHorizVal, centerFadeVal = 0.0, baseAlphaVal = 0.35) {
-        const color = new THREE.Color(colorHex);
-        return new THREE.ShaderMaterial({
-            vertexShader: gridVertexShader,
-            fragmentShader: gridFragmentShader,
-            uniforms: {
-                eqToHoriz: starsMaterial.uniforms.eqToHoriz,
-                lookAz: starsMaterial.uniforms.lookAz,
-                lookEl: starsMaterial.uniforms.lookEl,
-                focalLen: starsMaterial.uniforms.focalLen,
-                starVisibility: starsMaterial.uniforms.starVisibility,
-                lineColor: { value: color },
-                isHoriz: { value: isHorizVal },
-                centerFade: { value: centerFadeVal },
-                baseAlpha: { value: baseAlphaVal }
-            },
-            transparent: true,
-            depthWrite: false,
-            premultipliedAlpha: true,
-            blending: THREE.AdditiveBlending,
-            extensions: { derivatives: true }
-        });
-    };
+  window.createGridMaterial = function (
+    colorHex,
+    isHorizVal,
+    centerFadeVal = 0.0,
+    baseAlphaVal = 0.35,
+  ) {
+    const color = new THREE.Color(colorHex);
+    return new THREE.ShaderMaterial({
+      vertexShader: gridVertexShader,
+      fragmentShader: gridFragmentShader,
+      uniforms: {
+        eqToHoriz: starsMaterial.uniforms.eqToHoriz,
+        lookAz: starsMaterial.uniforms.lookAz,
+        lookEl: starsMaterial.uniforms.lookEl,
+        focalLen: starsMaterial.uniforms.focalLen,
+        starVisibility: starsMaterial.uniforms.starVisibility,
+        lineColor: { value: color },
+        isHoriz: { value: isHorizVal },
+        centerFade: { value: centerFadeVal },
+        baseAlpha: { value: baseAlphaVal },
+      },
+      transparent: true,
+      depthWrite: false,
+      premultipliedAlpha: true,
+      blending: THREE.AdditiveBlending,
+      extensions: { derivatives: true },
+    });
+  };
 }
 
 window.setupMoon = function () {
-    const moonTex = new THREE.TextureLoader().load('assets/moon.png');
-    // moonTex.colorSpace = THREE.SRGBColorSpace; // if available
-    const moonGeo = new THREE.PlaneGeometry(1, 1);
+  const moonTex = new THREE.TextureLoader().load('assets/moon.png');
+  // moonTex.colorSpace = THREE.SRGBColorSpace; // if available
+  const moonGeo = new THREE.PlaneGeometry(1, 1);
 
-    const moonVertexShader = `
+  const moonVertexShader = `
         uniform mat3 eqToHoriz;
         uniform float lookAz;
         uniform float lookEl;
@@ -538,14 +547,14 @@ window.setupMoon = function () {
             vAltitude = horiz.z;
             
             vec3 up = vec3(0.0, 0.0, 1.0);
-            vec3 rawRight = cross(up, horiz);
+            vec3 rawRight = cross(horiz, up);
             vec3 right;
             if (length(rawRight) < 0.001) {
                 right = vec3(1.0, 0.0, 0.0);
             } else {
                 right = normalize(rawRight);
             }
-            vec3 top = normalize(cross(horiz, right));
+            vec3 top = normalize(cross(right, horiz));
             
             // 放大平面尺寸以容納月暈光圈 (0.06 -> 0.18)
             float angularSize = 0.18; 
@@ -589,7 +598,7 @@ window.setupMoon = function () {
         }
     `;
 
-    const moonFragmentShader = `
+  const moonFragmentShader = `
         uniform sampler2D map;
         
         varying vec2 vUv;
@@ -670,32 +679,32 @@ window.setupMoon = function () {
         }
     `;
 
-    window.moonMaterial = new THREE.ShaderMaterial({
-        vertexShader: moonVertexShader,
-        fragmentShader: moonFragmentShader,
-        uniforms: {
-            map: { value: moonTex },
-            eqToHoriz: { value: new THREE.Matrix3() },
-            lookAz: { value: 0 },
-            lookEl: { value: 0 },
-            focalLen: { value: 500 },
-            celestialPos: { value: new THREE.Vector3() },
-            sunPos: { value: new THREE.Vector3() }
-        },
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide
-    });
+  window.moonMaterial = new THREE.ShaderMaterial({
+    vertexShader: moonVertexShader,
+    fragmentShader: moonFragmentShader,
+    uniforms: {
+      map: { value: moonTex },
+      eqToHoriz: { value: new THREE.Matrix3() },
+      lookAz: { value: 0 },
+      lookEl: { value: 0 },
+      focalLen: { value: 500 },
+      celestialPos: { value: new THREE.Vector3() },
+      sunPos: { value: new THREE.Vector3() },
+    },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
 
-    window.moonMesh = new THREE.Mesh(moonGeo, window.moonMaterial);
-    window.moonMesh.renderOrder = 5; // In front of stars (0)
-    window.moonMesh.frustumCulled = false;
-    scene.add(window.moonMesh);
+  window.moonMesh = new THREE.Mesh(moonGeo, window.moonMaterial);
+  window.moonMesh.renderOrder = 5; // In front of stars (0)
+  window.moonMesh.frustumCulled = false;
+  scene.add(window.moonMesh);
 };
 
 window.setupSun = function () {
-    const sunGeo = new THREE.PlaneGeometry(1, 1);
-    const sunVertexShader = ` 
+  const sunGeo = new THREE.PlaneGeometry(1, 1);
+  const sunVertexShader = ` 
         uniform mat3 eqToHoriz; 
         uniform float lookAz; 
         uniform float lookEl; 
@@ -712,9 +721,9 @@ window.setupSun = function () {
             vec3 horiz = eqToHoriz * celestialPos; 
              
             vec3 up = vec3(0.0, 0.0, 1.0); 
-            vec3 rawRight = cross(up, horiz); 
+            vec3 rawRight = cross(horiz, up); 
             vec3 right = length(rawRight) < 0.001 ? vec3(1.0, 0.0, 0.0) : normalize(rawRight); 
-            vec3 top = normalize(cross(horiz, right)); 
+            vec3 top = normalize(cross(right, horiz)); 
              
             float angularSize = 2.5;  
             vec3 dir = horiz + (c.x * right + c.y * top) * (angularSize / 2.0); 
@@ -760,7 +769,7 @@ window.setupSun = function () {
         } 
     `;
 
-    const sunFragmentShader = ` 
+  const sunFragmentShader = ` 
         uniform float time;
         varying vec2 vUv; 
         varying float vAltitude; 
@@ -802,27 +811,26 @@ window.setupSun = function () {
         } 
     `;
 
-    window.sunMaterial = new THREE.ShaderMaterial({
-        vertexShader: sunVertexShader,
-        fragmentShader: sunFragmentShader,
-        uniforms: {
-            eqToHoriz: { value: new THREE.Matrix3() },
-            lookAz: { value: 0.0 },
-            lookEl: { value: 0.0 },
-            focalLen: { value: 1.0 },
-            celestialPos: { value: new THREE.Vector3() },
-            time: { value: 0.0 }
-        },
-        transparent: true,
-        depthWrite: false,
-        depthTest: false,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending
-    });
+  window.sunMaterial = new THREE.ShaderMaterial({
+    vertexShader: sunVertexShader,
+    fragmentShader: sunFragmentShader,
+    uniforms: {
+      eqToHoriz: { value: new THREE.Matrix3() },
+      lookAz: { value: 0.0 },
+      lookEl: { value: 0.0 },
+      focalLen: { value: 1.0 },
+      celestialPos: { value: new THREE.Vector3() },
+      time: { value: 0.0 },
+    },
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  });
 
-    window.sunMesh = new THREE.Mesh(sunGeo, window.sunMaterial);
-    window.sunMesh.renderOrder = 5;
-    window.sunMesh.frustumCulled = false;
-    scene.add(window.sunMesh);
-}; 
-
+  window.sunMesh = new THREE.Mesh(sunGeo, window.sunMaterial);
+  window.sunMesh.renderOrder = 5;
+  window.sunMesh.frustumCulled = false;
+  scene.add(window.sunMesh);
+};

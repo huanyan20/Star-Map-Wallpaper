@@ -7,7 +7,7 @@ code = code.replace(
   `if (hy >= H) {
           // ctx.fillStyle = \`rgb(\${_bgCache.topRGB.join(',')})\`;
           // ctx.fillRect(0, 0, W, H);
-        }`
+        }`,
 );
 
 // 2. Insert renderWebGL into render()
@@ -24,7 +24,7 @@ code = code.replace(
         // 2. Render WebGL layer (Background, Ocean, Ecliptic, Stars, Lines)
         if (window.renderWebGL) {
             window.renderWebGL(ts, lst_deg, starVisibility, _bgCache.topRGB, _bgCache.horRGB, _bgCache.hy, H);
-        }`
+        }`,
 );
 
 fs.writeFileSync('index.html', code);

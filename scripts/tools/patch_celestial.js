@@ -158,13 +158,13 @@ code = code.replace(
   /window\.eclipticMesh = new THREE\.LineLoop\(eclipticGeo, window\.eclipticMaterial\);\s*scene\.add\(window\.eclipticMesh\);/,
   `window.eclipticMesh = new THREE.LineLoop(eclipticGeo, window.eclipticMaterial);
     scene.add(window.eclipticMesh);
-    ${setupCelestialBodiesCode}`
+    ${setupCelestialBodiesCode}`,
 );
 
 // We need to add arguments to renderWebGL for sun and moon
 code = code.replace(
   /function renderWebGL\(ts, lst_deg, starVisibility, topRGB, horRGB, hy, screenH\) \{/,
-  `function renderWebGL(ts, lst_deg, starVisibility, topRGB, horRGB, hy, screenH, sunCoords, moonCoords, moonPhase) {`
+  `function renderWebGL(ts, lst_deg, starVisibility, topRGB, horRGB, hy, screenH, sunCoords, moonCoords, moonPhase) {`,
 );
 
 code = code.replace(
@@ -187,7 +187,7 @@ code = code.replace(
         window.moonMaterial.uniforms.phase.value = moonPhase;
     }
     
-    renderer.render(scene, camera);`
+    renderer.render(scene, camera);`,
 );
 
 fs.writeFileSync('webgl_engine.js', code);

@@ -87,7 +87,7 @@ function kelvinToRGB(kelvin) {
   return [
     Math.max(0, Math.min(255, r)),
     Math.max(0, Math.min(255, g)),
-    Math.max(0, Math.min(255, b))
+    Math.max(0, Math.min(255, b)),
   ];
 }
 
@@ -123,8 +123,8 @@ function buildStarsBin() {
 
   for (let i = 0; i < count; i++) {
     const [raDeg, decDeg, mag, bv] = stars[i];
-    const ra = raDeg * Math.PI / 180;
-    const dec = decDeg * Math.PI / 180;
+    const ra = (raDeg * Math.PI) / 180;
+    const dec = (decDeg * Math.PI) / 180;
     positions[i * 3 + 0] = Math.cos(dec) * Math.cos(ra);
     positions[i * 3 + 1] = Math.cos(dec) * Math.sin(ra);
     positions[i * 3 + 2] = Math.sin(dec);
@@ -143,13 +143,7 @@ function collectLabelCharset() {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const stars = parseAssignedArray(html, 'STARS');
   const conNames = parseAssignedObject(html, 'CON_NAMES');
-  const strings = new Set([
-    '0123456789.-+ °',
-    'NSEW',
-    '北南東西',
-    '天頂',
-    '黃道 Ecliptic'
-  ]);
+  const strings = new Set(['0123456789.-+ °', 'NSEW', '北南東西', '天頂', '黃道 Ecliptic']);
 
   for (const star of stars) {
     if (star.n) strings.add(star.n);
@@ -175,39 +169,43 @@ function buildLabels() {
   fs.writeFileSync(path.join(assetsDir, 'labels.charset.txt'), charset, 'utf8');
 
   return new Promise((resolve, reject) => {
-    generateBMFont(fontPath, {
-      outputType: 'json',
-      filename: path.join(assetsDir, 'labels'),
-      charset,
-      fontSize: 48,
-      textureSize: [2048, 2048],
-      texturePadding: 3,
-      border: 1,
-      fieldType: 'msdf',
-      distanceRange: 4,
-      roundDecimal: 0,
-      pot: true,
-      square: true
-    }, (error, textures, font) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      if (!textures.length) {
-        reject(new Error('No label texture generated'));
-        return;
-      }
-
-      fs.writeFileSync(path.join(assetsDir, 'labels.json'), font.data);
-      fs.writeFileSync(path.join(assetsDir, 'labels.png'), textures[0].texture);
-      for (const file of fs.readdirSync(assetsDir)) {
-        if (/^labels(?:\.\d+)?\.(?:fnt|cfg|png)$/i.test(file) && file !== 'labels.png') {
-          fs.rmSync(path.join(assetsDir, file), { force: true });
+    generateBMFont(
+      fontPath,
+      {
+        outputType: 'json',
+        filename: path.join(assetsDir, 'labels'),
+        charset,
+        fontSize: 48,
+        textureSize: [2048, 2048],
+        texturePadding: 3,
+        border: 1,
+        fieldType: 'msdf',
+        distanceRange: 4,
+        roundDecimal: 0,
+        pot: true,
+        square: true,
+      },
+      (error, textures, font) => {
+        if (error) {
+          reject(error);
+          return;
         }
-      }
-      console.log(`labels atlas: ${charset.length} glyphs`);
-      resolve();
-    });
+        if (!textures.length) {
+          reject(new Error('No label texture generated'));
+          return;
+        }
+
+        fs.writeFileSync(path.join(assetsDir, 'labels.json'), font.data);
+        fs.writeFileSync(path.join(assetsDir, 'labels.png'), textures[0].texture);
+        for (const file of fs.readdirSync(assetsDir)) {
+          if (/^labels(?:\.\d+)?\.(?:fnt|cfg|png)$/i.test(file) && file !== 'labels.png') {
+            fs.rmSync(path.join(assetsDir, file), { force: true });
+          }
+        }
+        console.log(`labels atlas: ${charset.length} glyphs`);
+        resolve();
+      },
+    );
   });
 }
 
@@ -217,7 +215,7 @@ async function main() {
   await buildLabels();
 }
 
-main().catch(error => {
+main().catch((error) => {
   console.error(error);
   process.exit(1);
 });

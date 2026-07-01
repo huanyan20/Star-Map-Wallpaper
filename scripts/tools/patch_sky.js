@@ -79,15 +79,12 @@ const setupSkyCode = `
 `;
 
 // Insert the sky code at the end of initWebGL
-code = code.replace(
-  /setupStars\(\);\n\}/,
-  `setupStars();\n${setupSkyCode}\n}`
-);
+code = code.replace(/setupStars\(\);\n\}/, `setupStars();\n${setupSkyCode}\n}`);
 
 // Modify renderWebGL signature and update logic
 code = code.replace(
   /function renderWebGL\(ts, lst_deg, starVisibility\) \{/,
-  `function renderWebGL(ts, lst_deg, starVisibility, topRGB, horRGB, hy, screenH) {`
+  `function renderWebGL(ts, lst_deg, starVisibility, topRGB, horRGB, hy, screenH) {`,
 );
 
 code = code.replace(
@@ -104,7 +101,7 @@ code = code.replace(
         // Ensure skyMesh scales to window
         window.skyMesh.geometry.dispose();
         window.skyMesh.geometry = new THREE.PlaneGeometry(window.innerWidth, window.innerHeight);
-    }`
+    }`,
 );
 
 fs.writeFileSync('webgl_engine.js', code);

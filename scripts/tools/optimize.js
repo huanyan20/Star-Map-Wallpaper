@@ -4,7 +4,7 @@ let code = fs.readFileSync('index.html', 'utf8');
 // 1. Camera vectors cache
 code = code.replace(
   /function altAzToXY\(alt_rad, az_rad\) \{[\s\S]*?return \{ x: px, y: py \};\s*\}/,
-`/* === CACHED CAMERA VECTORS === */
+  `/* === CACHED CAMERA VECTORS === */
     let _camLx=0, _camLy=1, _camLz=0;
     let _camRx=1, _camRy=0;
     let _camUx=0, _camUy=0, _camUz=1;
@@ -36,13 +36,13 @@ code = code.replace(
       const py = CY - pu * k * _camF;
       if (px < -W * 2 || px > W * 3 || py < -H * 2 || py > H * 3) return null;
       return { x: px, y: py };
-    }`
+    }`,
 );
 
 // 2. updateClock
 code = code.replace(
   /function updateClock\(\) \{\s*const now = new Date\(\);/,
-  `function updateClock(now) {`
+  `function updateClock(now) {`,
 );
 
 // 3. Grid optimizations (Equatorial Grid step size)
@@ -52,7 +52,7 @@ code = code.replace(/dec \+= 3/g, 'dec += 5');
 // 4. Star Position Cache
 code = code.replace(
   /function drawConstellationLines\(lst_deg\) \{/,
-`/* === NAMED STAR SCREEN POSITION CACHE === */
+  `/* === NAMED STAR SCREEN POSITION CACHE === */
     let _starPosCache = {};
     function buildStarPositionCache(lst_deg){
       _starPosCache = {};
@@ -63,12 +63,12 @@ code = code.replace(
       }
     }
 
-    function drawConstellationLines(lst_deg) {`
+    function drawConstellationLines(lst_deg) {`,
 );
 
 code = code.replace(
   /const s1 = STAR_BY_CN\[cn1\], s2 = STAR_BY_CN\[cn2\];\s*if \(\!s1 \|\| \!s2\) continue;\s*const p1 = getXY\(s1\.ra, s1\.dec, lst_deg\), p2 = getXY\(s2\.ra, s2\.dec, lst_deg\);/,
-  `const p1 = _starPosCache[cn1], p2 = _starPosCache[cn2];`
+  `const p1 = _starPosCache[cn1], p2 = _starPosCache[cn2];`,
 );
 
 code = code.replace(
@@ -76,7 +76,7 @@ code = code.replace(
   `const c = _starPosCache[star.cn];
         if(!c) continue;
         if (!centroids[star.con]) centroids[star.con] = { x: 0, y: 0, n: 0 };
-        centroids[star.con].x += c.x; centroids[star.con].y += c.y; centroids[star.con].n++;`
+        centroids[star.con].x += c.x; centroids[star.con].y += c.y; centroids[star.con].n++;`,
 );
 
 // 5. drawFieldStars vectors
@@ -86,7 +86,7 @@ code = code.replace(
       const D1 = E1*_camLx + N1*_camLy + U1*_camLz, D2 = E2*_camLx + N2*_camLy + U2*_camLz, D3 = N3*_camLy + U3*_camLz;
       const R1 = E1*_camRx + N1*_camRy, R2 = E2*_camRx + N2*_camRy, R3 = N3*_camRy;
       const Uu1 = E1*_camUx + N1*_camUy + U1*_camUz, Uu2 = E2*_camUx + N2*_camUy + U2*_camUz, Uu3 = N3*_camUy + U3*_camUz;
-      const f = _camF;`
+      const f = _camF;`,
 );
 
 // 6. drawStars cache + screenPos bug fix
@@ -103,7 +103,7 @@ code = code.replace(
 
         screenPos.push({ x: cached.x, y: cached.y, star });
 
-        const sinAlt = Math.max(0.05, Math.sin(cached.alt));`
+        const sinAlt = Math.max(0.05, Math.sin(cached.alt));`,
 );
 
 // 7. Render loop
@@ -116,7 +116,7 @@ code = code.replace(
       if (ts - lastClockT > 200) { updateClock(now); lastClockT = ts; }
 
       updateCamCache();
-      buildStarPositionCache(lst_deg);`
+      buildStarPositionCache(lst_deg);`,
 );
 
 fs.writeFileSync('index.html', code);

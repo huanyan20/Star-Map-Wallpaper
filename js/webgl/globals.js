@@ -5,6 +5,5 @@ let fieldStarsMesh, namedStarsMesh;
 let starCatalogPromise = null;
 let labelFontPromise = null;
 let labelLayer = null;
-let skyW = 0, skyH = 0;
-
-
+let skyW = 0,
+  skyH = 0;

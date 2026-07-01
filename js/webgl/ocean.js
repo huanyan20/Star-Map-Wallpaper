@@ -1,9 +1,9 @@
 function setupOcean() {
-    const size = 2.0; // LOD exponential mapping in shader
-    const segments = 512; // High resolution for central area
-    const oceanGeo = new THREE.PlaneGeometry(size, size, segments, segments);
+  const size = 2.0; // LOD exponential mapping in shader
+  const segments = 512; // High resolution for central area
+  const oceanGeo = new THREE.PlaneGeometry(size, size, segments, segments);
 
-    const oceanVertexShader = `
+  const oceanVertexShader = `
         uniform float lookAz;
         uniform float lookEl;
         uniform float focalLen;
@@ -167,7 +167,9 @@ function setupOcean() {
         }
     `;
 
-    const oceanFragmentShader = `
+  const oceanFragmentShader = `
+        uniform vec3 topRGB;
+        uniform vec3 midRGB;
         uniform vec3 horRGB;
         uniform float time;
         uniform float lookEl;
@@ -273,6 +275,9 @@ function setupOcean() {
 
         // 根據距離 dist、視線俯角 angleSine 與 海浪高度 waveHeight 衰減高頻細節
         float water_bump(vec2 p, float t, float dist, float angleSine, float waveHeight) {
+            // 加入真實的碎形雜訊 (fbm) 大幅扭曲空間，徹底打破弦波的規律性，產生真實的流體混沌感
+            p += vec2(fbm(p * 0.4 + t * 0.2), fbm(p * 0.4 - t * 0.2)) * 1.5;
+            
             float n = 0.0;
             
             // 碎斑紋空間叢集效應 (Patchy Ripples)
@@ -370,18 +375,26 @@ function setupOcean() {
             vec3 V = -exactRay;
 
             // 距離衰減 (Distance) 與 視角衰減 (Angle)
-            // 視線俯角 2~6 度之間，量逐漸減小，但最低保留 0.3 的起伏，不再強制抹平
-            float angleAtten = mix(0.3, 1.0, smoothstep(0.035, 0.105, -exactRay.z));
-            float distAtten = 1.0 - smoothstep(20.0, 120.0, dist);
+            // 根據視線夾角與距離進行細碎波浪衰減 (防止中遠處出現過於密集的高頻噪點)
+            // [關鍵修復] 絕對不能讓細碎波紋完全衰減到 0！
+            // 如果遠處的細波紋 (Normal Map) 衰減到 0，水面就會暴露出底層 3D 網格 (Grid) 的低解析度三角形，
+            // 導致遠處的光線折射與透鏡效應看起來變成一格一格的「不平滑有角」多邊形。
+            // 因此，我們在最遠處強制保留最低 15% 的細碎波紋，用來「打散」邊緣，隱藏多邊形稜角。
+            float angleAtten = mix(0.15, 1.0, smoothstep(0.0, -0.28, exactRay.z)); 
+            // 同樣地，距離衰減也保留最低 10% 的基本起伏
+            float distAtten = mix(0.1, 1.0, exp(-dist * 0.0015));
             
             // 額外的高度衰減：如果在波谷，整體波紋量也直接減少
             float heightAtten = mix(0.15, 1.0, smoothstep(-3.0, -2.1, vWorldPos.z));
             
+            vec3 finalBump = vec3(0.0);
             float bumpDistAttenuation = angleAtten * distAtten * heightAtten;
             if (bumpDistAttenuation > 0.0) {
                 // 移除 Flow Mapping 相位循環，改為簡單的整體推移，讓波浪表面細碎有移動感
                 vec2 uv = vWorldPos.xy * 0.8;
-                uv += vec2(time * 0.4, time * 0.2); // 碎浪的整體移動速度
+                // 讓細碎波紋的移動方向跟隨光源方位 (lightDir)，產生光與風同向吹拂的連貫感
+                vec2 windDir = normalize(lightDir.xy + vec2(0.001, 0.001)); 
+                uv -= windDir * time * 0.6;
                 
                 // 傳入 exactRay.z 與 vWorldPos.z 以同步降低複雜度與強度
                 vec3 finalBump = getWaterNormal(uv, time, dist, -exactRay.z, vWorldPos.z);
@@ -396,123 +409,169 @@ function setupOcean() {
             float cosTheta = clamp(dot(V, N), 0.0, 1.0);
             
             // Fresnel (Schlick's approximation)
-            float R0 = 0.02; // Water reflection coefficient
+            // [優化] 響應「整體反射增強」需求：將基礎反射率 (R0) 從 0.02 大幅提升至 0.08
+            // 這樣即使在非掠射角 (向下看) 也能保持足夠的反射強度，防止背光面的海浪隱形
+            float R0 = 0.08; 
             float R = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
             
-            // 水體本身顏色 (次表面散射近似 Subsurface Scattering)
-            vec3 deepWater = vec3(0.002, 0.01, 0.03);
-            vec3 shallowWater = vec3(0.0, 0.04, 0.08); 
-            
+            // [完全整合] 海水底色動態跟隨天空漸層 (horRGB, midRGB, topRGB)
+            // 取代原本寫死的固定色，隨著時間日夜變化，海水顏色會完美融合，再也不會有突兀的「舊顏色」
+            vec3 deepWater = horRGB * 0.05 + topRGB * 0.1 + vec3(0.001, 0.002, 0.005);
+            vec3 shallowWater = horRGB * 0.1 + midRGB * 0.15 + vec3(0.002, 0.005, 0.01);
             float waveHeight = max(0.0, vWorldPos.z + 2.2);
-            vec3 waterBody = mix(deepWater, shallowWater, waveHeight * 1.8);
+            vec3 waterBody = mix(deepWater, shallowWater, waveHeight * 1.5);
+            
+            // ==========================================
+            // 透光變色 (Subsurface Scattering & Diffuse)
+            // ==========================================
+            if (lightIntensity > 0.0) {
+                // 1. 漫反射 (Diffuse)：使用 Half-Lambert (Wrap Lighting) 柔和邊緣，消除切邊過於強烈的問題
+                // 這可以讓背光面 (暗部) 也有滑順的亮度過渡，顏色更真實且不生硬
+                // [優化] 增強漫反射亮度 (從 0.025 提升至 0.12)，讓背向月光的波浪斜面也能被月光照亮，勾勒出清晰的立體海浪形狀
+                float NdL = dot(N, lightDir) * 0.5 + 0.5; 
+                NdL = smoothstep(0.1, 0.9, NdL);
+                vec3 diffuseColor = lightColor * 0.12 * NdL * lightIntensity;
+                
+                // 2. 次表面散射 (SSS / 透光變色)：
+                // 調整為更真實的午夜海水透光色 (深邃的墨綠/青色)，降低螢光感
+                vec3 H_scatter = normalize(lightDir + N * 0.4); 
+                float scatter = pow(max(0.0, dot(V, -H_scatter)), 2.5);
+                
+                // 利用 smoothstep 讓透光漸層更柔和，避免在波浪邊緣產生色塊切線
+                float sssMask = smoothstep(0.0, 1.0, waveHeight * 1.5);
+                // 調整透光色：同步跟隨地平線天光 (horRGB) 變化，降低螢光感
+                vec3 sssColor = (horRGB * 0.3 + vec3(0.002, 0.005, 0.01)) * scatter * sssMask * lightIntensity * 2.0;
+                
+                waterBody += diffuseColor + sssColor;
+            }
             
             // 計算真實的環境反射向量
             vec3 refDir = reflect(-V, N);
             
-            // 根據反射向量的仰角 (refDir.z) 來建立天空漸層
-            // 讓波紋的高度與斜率真實反映在映射的環境影像上，而不是單純依靠 Fresnel 造成的顏色明暗對比
-            vec3 zenithColor = vec3(0.005, 0.015, 0.03); // 天頂較暗的深色
-            // 修正水平線亮度接縫，與天空保持完全一致
-            vec3 horizonColor = horRGB + vec3(0.02, 0.04, 0.08); 
+            // [完全整合] 天頂反射光不再寫死，自動跟隨頂部天空色彩
+            // 將天頂壓暗以製造出極端的高反差，這樣當波浪起伏時，反射的天頂與地平線色彩切換才會明顯，凸顯波浪立體感
+            vec3 zenithColor = topRGB * 0.1 + vec3(0.001, 0.002, 0.004);
             
-            // 取出反射向量的 Z 軸來混合天頂與地平線，並使用指數曲線讓地平線光暈更集中
+            // 計算月光在天際線造成的強烈光暈
+            float glowFactor = dot(normalize(refDir.xy + vec2(0.001)), normalize(lightDir.xy + vec2(0.001))) * 0.5 + 0.5;
+            
+            // [關鍵修復] 完全移除人工的白色 moonGlow 疊加！
+            // 取而代之，我們使用方位角衰減 (skyDimming)
+            // [優化] 響應「另以角度要漸弱但不能無光」：
+            // 將背對月亮的最暗值從 0.1 (10%) 大幅拉高到 0.45 (45%)，保證背光面依然有充足的微光！
+            // 同時將衰減曲線從 3 次方調降為 1.5 次方，讓「漸弱」的過程更加平滑柔和
+            float skyDimming = mix(1.0, mix(0.45, 1.0, pow(glowFactor, 1.5)), min(lightIntensity, 1.0));
+            vec3 horizonColor = (horRGB * 0.6 + midRGB * 0.3 + vec3(0.005, 0.01, 0.02)) * skyDimming;
+            
+            // 取出反射向量的 Z 軸來混合天頂與地平線
+            // [優化] 響應需求：將地平線微光的範圍嚴格限制在仰角 7.5 度 (sin(7.5) ≈ 0.13) 內
+            // 超過 7.5 度就會迅速且平滑地過渡為極暗的 zenithColor，避免地平線光暈延伸到近處水面
             float skyBlend = clamp(refDir.z, 0.0, 1.0);
-            vec3 skyReflection = mix(horizonColor, zenithColor, pow(skyBlend, 0.5)); 
+            float skyMixFactor = smoothstep(0.0, 0.13, skyBlend); 
+            vec3 skyReflection = mix(horizonColor, zenithColor, skyMixFactor); 
             
-            // 直接鏡像天際線 (完美倒影，不受波浪法線扭曲)
-            vec3 mirrorDir = reflect(-V, vec3(0.0, 0.0, 1.0));
-            float rawU = atan(mirrorDir.y, mirrorDir.x) / (2.0 * 3.1415926535) + 0.5;
-            // 修正接縫問題：投影的 Z 值即為高度的 Sine，不需要除以長度
-            float mirrorSz = mirrorDir.z;
-            vec4 cityReflection = getProceduralSkyline(rawU, mirrorSz);
-            if (cityReflection.a > 0.0) {
-                skyReflection = mix(skyReflection, cityReflection.rgb, cityReflection.a);
+            // 修正向下反射 (refDir.z < 0.0)：
+            // 當海浪斜面過於陡峭而朝下反射時，應該反射暗色的深海水面
+            // 同理，將向下反射的漸層範圍也嚴格限制在俯角 7.5 度 (0.13) 內，避免微光向下延伸
+            float groundBlend = smoothstep(0.0, 0.13, -refDir.z);
+            skyReflection = mix(skyReflection, deepWater * 0.5, groundBlend);
+            
+            // 讓真實的環境反射向量 (包含海浪擾動) 取代死板的鏡像，使城市倒影跟著海浪扭曲
+            float rawU = atan(refDir.y, refDir.x) / (2.0 * 3.1415926535) + 0.5;
+            float refSz = refDir.z;
+            vec4 cityReflection = vec4(0.0);
+            
+            // 只有當反射射線打中建築物高度時，才採樣城市光源
+            if (refSz > 0.0 && refSz < 0.1) {
+                cityReflection = getProceduralSkyline(rawU, refSz);
+                if (cityReflection.a > 0.0) {
+                    skyReflection = mix(skyReflection, cityReflection.rgb, cityReflection.a);
+                }
             }
 
             // 根據 Fresnel 反射率混合水體與真實環境反射
             vec3 waterColor = mix(waterBody, skyReflection, R);
             
             // ==========================================
-            // 新增：利用海浪法線取得城市光點反射 (光點粒子)
+            // 萃取出特別亮的光源 (窗戶、信號燈)，讓光點隨著海浪起伏在近處產生閃爍的長條光暈
             // ==========================================
-            vec3 waveRefDir = reflect(-V, N);
-            float waveU = atan(waveRefDir.y, waveRefDir.x) / (2.0 * 3.1415926535) + 0.5;
-            float waveSz = waveRefDir.z;
-            
-            // 只有當反射射線打中建築物高度時，才採樣城市光源
-            if (waveSz > 0.0 && waveSz < 0.1) {
-                vec4 waveCity = getProceduralSkyline(waveU, waveSz);
-                if (waveCity.a > 0.0) {
-                    // 萃取出特別亮的光源 (窗戶、信號燈)，避免暗色建築物遮蔽水面
-                    float brightness = dot(waveCity.rgb, vec3(0.299, 0.587, 0.114));
-                    if (brightness > 0.05) { // 只保留高光部分作為光點粒子
-                        // 讓光點隨著海浪起伏在近處閃爍
-                        waterColor += waveCity.rgb * R * 4.0;
-                    }
+            if (cityReflection.a > 0.0) {
+                float brightness = dot(cityReflection.rgb, vec3(0.299, 0.587, 0.114));
+                if (brightness > 0.05) { // 只保留高光部分作為光點粒子
+                    waterColor += cityReflection.rgb * R * 4.0;
                 }
             }
             
-            // 2. Specular Glint (鏡面閃爍高光)
+            // 2. Specular Glint (鏡面閃爍高光 & 月光海倒影)
             float specular = 0.0;
             if (lightIntensity > 0.0) {
                 vec3 halfVector = normalize(lightDir + V);
                 float NdotH = max(0.0, dot(N, halfVector));
                 
-                // 高光緊縮程度
-                float shininess = 300.0; 
-                specular = pow(NdotH, shininess) * lightIntensity;
+                // 組合多個不同粗糙度的高光，形成在水面上拖長的月光倒影 (Moon glade)
+                // [優化] 回應「月光以及光暈太亮」：極度收斂高光的強度，讓月光回歸柔和細緻的點綴
+                float specCore = pow(NdotH, 1200.0) * 0.6; // 極度銳利的核心倒影，亮度大幅下降
+                float specMid  = pow(NdotH, 450.0) * 0.3;  // 散開的中段
+                float specTail = pow(NdotH, 120.0) * 0.1;  // 寬闊的尾部
                 
-                // 星點閃爍雜訊 (在波浪尖端產生微小晶瑩亮點)
-                float glintNoise = hash(floor(vWorldPos.xy * 80.0) + time * 2.0); // 隨時間閃動的高頻雜訊
-                specular *= (0.2 + glintNoise * 0.8);
+                specular = (specCore + specMid + specTail) * lightIntensity;
                 
-                // 使用 bumpDistAttenuation 使遠處不要出現過度雜訊的高光
-                specular *= bumpDistAttenuation * 0.8; 
+                // 波光粼粼的閃爍雜訊 (在波浪尖端產生微小晶瑩亮點)
+                float glintNoise = hash(floor(vWorldPos.xy * 100.0) + time * 3.0); 
+                specular *= (0.5 + glintNoise * 2.0); // 稍微提升閃爍晶瑩感
                 
-                // 疊加光源顏色
-                waterColor += specular * lightColor;
+                // 計算視線與光源方位的夾角遮罩，強制切除因為海浪法線過度扭曲而往左右兩側亂噴的光斑
+                // 稍微放寬至 40 次方，以免光芒過窄顯得不自然
+                float alignFactor = dot(normalize(exactRay.xy), normalize(lightDir.xy));
+                float narrowMask = pow(max(0.0, alignFactor * 0.5 + 0.5), 40.0);
+                
+                // 使用 bumpDistAttenuation 使遠處不要出現過度密集的高光雜訊
+                specular *= mix(0.2, 1.0, bumpDistAttenuation); 
+                specular *= narrowMask; // 強制限制光暈寬度
+                
+                // 疊加光源顏色，並結合 Fresnel 效應 (掠射角反射更強)
+                // 將總體亮度乘數從 2.5 大幅降至 1.0，徹底解決月光刺眼的問題
+                waterColor += specular * lightColor * (R * 4.0 + 1.2) * 1.0;
             }
             
-            
-            float darken = clamp(1.0 + exactSz, 0.0, 1.0);
-            waterColor *= mix(0.1, 1.0, darken);
-            
+            // 移除早期強制將近處(相反方向)壓暗的程式碼，
+            // 讓前面設定的深邃海水色與物理光影 (Diffuse) 得以完整呈現，不再被強行蓋過變成死黑。
             // 套用 ACES 色調映射，讓高光更自然，提升對比
             waterColor = ACESFilm(waterColor);
             
-            // 漸進成全黑透明，以顯示地平線下的星星
-            // 視角往上時 (lookEl >= 0) 不顯示黑洞，保持波紋
-            // 視角往下時 (lookEl < 0) 世界正下方(sz接近-1)最黑，往上漸變
-            float baseHole = smoothstep(-0.95, -0.5, exactSz);
-            float holeIntensity = clamp(-lookEl * 2.0, 0.0, 1.0);
-            float lookDownAlpha = mix(1.0, baseHole, holeIntensity);
+            // 利用 Fresnel (R) 決定物理透明度 (透底效應)
+            // 如果透明度降得太低 (例如之前的 0.1)，會導致海面上所有的光影、反射都被稀釋到看不見 (導致海浪隱形)
+            // 將最低透明度拉回 0.45，這樣既能透視底下的星星，又能完美保留波浪的光影立體感
+            float oceanAlpha = mix(0.45, 0.98, R);
             
-            // 讓黑洞區域變為純黑而不是透明，避免透出網頁背景色，星空會藉由 Additive Blending 正常顯示
-            gl_FragColor = vec4(waterColor * lookDownAlpha * vAlpha, vAlpha);
+            // 直接輸出帶有物理透明度的水色，與背後的星空完美混合 (透底)
+            gl_FragColor = vec4(waterColor, oceanAlpha * vAlpha);
         }
     `;
 
-    window.oceanMaterial = new THREE.ShaderMaterial({
-        vertexShader: oceanVertexShader,
-        fragmentShader: oceanFragmentShader,
-        uniforms: {
-            horRGB: { value: new THREE.Vector3() },
-            time: { value: 0 },
-            lookAz: { value: 0 },
-            lookEl: { value: 0 },
-            focalLen: { value: 500 },
-            resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-            lightDir: { value: new THREE.Vector3(0, 0, 1) },
-            lightIntensity: { value: 0.0 },
-            lightColor: { value: new THREE.Vector3(0.8, 0.9, 1.0) },
-            skylineTex: { value: null }
-        },
-        transparent: true,
-        depthWrite: false
-    });
+  window.oceanMaterial = new THREE.ShaderMaterial({
+    vertexShader: oceanVertexShader,
+    fragmentShader: oceanFragmentShader,
+    uniforms: {
+      topRGB: { value: new THREE.Vector3() },
+      midRGB: { value: new THREE.Vector3() },
+      horRGB: { value: new THREE.Vector3() },
+      time: { value: 0 },
+      lookAz: { value: 0 },
+      lookEl: { value: 0 },
+      focalLen: { value: 500 },
+      resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+      lightDir: { value: new THREE.Vector3(0, 0, 1) },
+      lightIntensity: { value: 0.0 },
+      lightColor: { value: new THREE.Vector3(0.8, 0.9, 1.0) },
+      skylineTex: { value: null },
+    },
+    transparent: true,
+    depthWrite: false,
+  });
 
-    window.oceanMesh = new THREE.Mesh(oceanGeo, window.oceanMaterial);
-    window.oceanMesh.renderOrder = -10;
-    scene.add(window.oceanMesh);
+  window.oceanMesh = new THREE.Mesh(oceanGeo, window.oceanMaterial);
+  // 讓海面的 renderOrder 大於星星 (0)，這樣星星就會被繪製在海面「之下」，配合透明度達成真正的透底效果
+  window.oceanMesh.renderOrder = 10;
+  scene.add(window.oceanMesh);
 }
-

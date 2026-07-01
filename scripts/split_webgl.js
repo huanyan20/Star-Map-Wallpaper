@@ -2,7 +2,7 @@ const fs = require('fs');
 const lines = fs.readFileSync('js/webgl_engine.js', 'utf8').split(/\r?\n/);
 
 function getLines(start, end) {
-    return lines.slice(start - 1, end).join('\n') + '\n';
+  return lines.slice(start - 1, end).join('\n') + '\n';
 }
 
 const globals = getLines(1, 10);

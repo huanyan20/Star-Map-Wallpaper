@@ -13,27 +13,24 @@ code = code.replace(
                 { ra: sunRaDec.ra, dec: sunRaDec.dec },
                 { ra: moonRaDec.ra, dec: moonRaDec.dec },
                 moonPhase
-            );`
+            );`,
 );
 
 // We need to define moonPhase if it's not defined, or get it from getMoonPhase
 code = code.replace(
   /const moonRaDec = getMoonRaDec\(jd\);/,
   `const moonRaDec = getMoonRaDec(jd);
-        const moonPhase = getMoonPhase(jd);`
+        const moonPhase = getMoonPhase(jd);`,
 );
 
 // Comment out drawSun
 code = code.replace(
   /if \(sunAltAz\.alt > toRad\(-0\.5\)\) drawSun\(sunAltAz\.alt, sunAltAz\.az\);/,
-  `// if (sunAltAz.alt > toRad(-0.5)) drawSun(sunAltAz.alt, sunAltAz.az); // Migrated to WebGL`
+  `// if (sunAltAz.alt > toRad(-0.5)) drawSun(sunAltAz.alt, sunAltAz.az); // Migrated to WebGL`,
 );
 
 // Disable drawMoon inside render() if it exists
-code = code.replace(
-  /drawMoon\(/g,
-  `// drawMoon(`
-);
+code = code.replace(/drawMoon\(/g, `// drawMoon(`);
 
 fs.writeFileSync('index.html', code);
 console.log('index.html patched with Sun and Moon payload');

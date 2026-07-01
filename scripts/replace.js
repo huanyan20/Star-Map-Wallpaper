@@ -12,9 +12,9 @@ const newScripts = `<script src="js/webgl/globals.js"></script>
   <script src="js/webgl/init.js"></script>`;
 
 if (html.includes(oldScript)) {
-    html = html.replace(oldScript, newScripts);
-    fs.writeFileSync('index.html', html, 'utf8');
-    console.log('Updated index.html');
+  html = html.replace(oldScript, newScripts);
+  fs.writeFileSync('index.html', html, 'utf8');
+  console.log('Updated index.html');
 } else {
-    console.log('oldScript not found in index.html');
+  console.log('oldScript not found in index.html');
 }

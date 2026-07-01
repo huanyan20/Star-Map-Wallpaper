@@ -1,0 +1,5 @@
+node_modules
+.archive
+data
+assets
+package-lock.json

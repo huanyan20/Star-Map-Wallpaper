@@ -146,14 +146,14 @@ const setupMilkyWayCode = `
 code = code.replace(
   /scene\.add\(window\.moonMesh\);/,
   `scene.add(window.moonMesh);
-    ${setupMilkyWayCode}`
+    ${setupMilkyWayCode}`,
 );
 
 // Toggle visibility of Milky Way
 code = code.replace(
   /if \(window\.eclipticMesh\) window\.eclipticMesh\.visible = toggles\.equator;/,
   `if (window.eclipticMesh) window.eclipticMesh.visible = toggles.ecliptic;
-        if (window.mwMesh) window.mwMesh.visible = toggles.milkyway;`
+        if (window.mwMesh) window.mwMesh.visible = toggles.milkyway;`,
 );
 
 fs.writeFileSync('webgl_engine.js', code);

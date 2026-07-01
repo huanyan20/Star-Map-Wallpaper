@@ -10,7 +10,13 @@ const BROWSER_PATHS = [
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  path.join(process.env.LOCALAPPDATA || '', 'ms-playwright', 'chromium-1223', 'chrome-win64', 'chrome.exe')
+  path.join(
+    process.env.LOCALAPPDATA || '',
+    'ms-playwright',
+    'chromium-1223',
+    'chrome-win64',
+    'chrome.exe',
+  ),
 ].filter(Boolean);
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -18,11 +24,11 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.bin': 'application/octet-stream',
-  '.css': 'text/css; charset=utf-8'
+  '.css': 'text/css; charset=utf-8',
 };
 
 function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const server = http.createServer((req, res) => {
@@ -39,7 +45,9 @@ const server = http.createServer((req, res) => {
       res.end('Not found');
       return;
     }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
+    });
     res.end(data);
   });
 });
@@ -48,16 +56,16 @@ const server = http.createServer((req, res) => {
   let browser;
   const errors = [];
   try {
-    await new Promise(resolve => server.listen(PORT, '127.0.0.1', resolve));
-    const executablePath = BROWSER_PATHS.find(candidate => fs.existsSync(candidate));
+    await new Promise((resolve) => server.listen(PORT, '127.0.0.1', resolve));
+    const executablePath = BROWSER_PATHS.find((candidate) => fs.existsSync(candidate));
     browser = await puppeteer.launch({ headless: 'new', executablePath });
     const page = await browser.newPage();
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       const text = msg.text();
       if (msg.type() === 'error' && !text.includes('Failed to load resource')) errors.push(text);
     });
-    page.on('pageerror', err => errors.push(err.message));
-    page.on('response', resp => {
+    page.on('pageerror', (err) => errors.push(err.message));
+    page.on('response', (resp) => {
       if (resp.status() >= 400 && !resp.url().endsWith('/favicon.ico')) {
         errors.push(`${resp.status()} ${resp.url()}`);
       }
@@ -74,7 +82,7 @@ const server = http.createServer((req, res) => {
     if (browser) await browser.close();
     server.close();
   }
-})().catch(error => {
+})().catch((error) => {
   console.error(error);
   server.close();
   process.exit(1);

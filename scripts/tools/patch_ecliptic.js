@@ -44,7 +44,7 @@ code = code.replace(
   /const lineMesh = new THREE\.LineSegments\(lineGeo, window\.constellationLinesMaterial\);\s*scene\.add\(lineMesh\);/,
   `window.constellationLineMesh = new THREE.LineSegments(lineGeo, window.constellationLinesMaterial);
         scene.add(window.constellationLineMesh);
-        ${setupEclipticCode}`
+        ${setupEclipticCode}`,
 );
 
 // Toggle visibility of ecliptic based on toggles.equator (since there is no toggles.ecliptic currently, or we can use toggles.constellations)
@@ -52,7 +52,7 @@ code = code.replace(
   /if \(window\.constellationLineMesh && typeof toggles \!== 'undefined'\) \{/,
   `if (window.constellationLineMesh && typeof toggles !== 'undefined') {
         window.constellationLineMesh.visible = toggles.constellations;
-        if (window.eclipticMesh) window.eclipticMesh.visible = toggles.equator;`
+        if (window.eclipticMesh) window.eclipticMesh.visible = toggles.equator;`,
 );
 
 fs.writeFileSync('webgl_engine.js', code);
