@@ -171,21 +171,22 @@ function updateGridVisibility() {
   }
 }
 
-function renderWebGL(
-  ts,
-  lst_deg,
-  starVisibility,
-  topRGB,
-  midRGB,
-  horRGB,
-  hy,
-  screenH,
-  sunCoords,
-  moonCoords,
-  moonPhase,
-  labels,
-  atmosphereEnabled = true
-) {
+function renderWebGL(fState, screenH, labels) {
+  const {
+    ts,
+    lst_deg,
+    starVisibility,
+    topRGB,
+    midRGB,
+    horRGB,
+    hy,
+    sunRaDec,
+    moonRaDec,
+    moonPhase,
+    atmosphereEnabled = true
+  } = fState;
+  const sunCoords = sunRaDec ? { ra: sunRaDec.ra, dec: sunRaDec.dec } : null;
+  const moonCoords = moonRaDec ? { ra: moonRaDec.ra, dec: moonRaDec.dec } : null;
   const lst_rad = (lst_deg * Math.PI) / 180;
   const sinL = Math.sin(LAT_RAD);
   const cosL = Math.cos(LAT_RAD);

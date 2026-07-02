@@ -105,11 +105,20 @@ function setupShaders() {
             
             // Base size + strong halo for bright stars
             float zoomScale = focalLen / 500.0;
-            // 稍微放大基礎星星尺寸，讓暗星在 1080p 有足夠像素能亮起 (2.5 -> 3.5)
-            float ptSize = max(5.5, baseIntensity * 5.0) * pow(zoomScale, 0.3);
+            // 放大基礎星星尺寸，並減緩縮放比例，讓中等星星(不大不小)在廣角時維持一定像素，避免閃爍
+            float ptSize = max(7.5, baseIntensity * 6.0) * pow(zoomScale, 0.2);
             if (starMag < 3.0) {
-                // 大幅縮小亮星的光暈佔用的實體大小
-                ptSize += pow(max(0.0, 3.0 - starMag), 1.2) * 1.0 * pow(zoomScale, 0.9); 
+                // 增加亮星的整體基礎大小 (1.0 -> 1.4)
+                float brightBase = pow(max(0.0, 3.0 - starMag), 1.2) * 1.4;
+                float currentZoom = pow(zoomScale, 0.9);
+                
+                // 最亮星 (starMag < 0.0) 維持原設定完全跟隨縮放。
+                // 其餘亮星 (0.0 <= starMag < 3.0) 在視野最大時(zoomScale極小)維持下限，避免變太小。
+                if (starMag >= 0.0) {
+                    currentZoom = max(currentZoom, 0.45);
+                }
+                
+                ptSize += brightBase * currentZoom; 
             }
             ptSize *= clamp(starVisibility * 2.5, 0.3, 1.2);
             
@@ -217,24 +226,27 @@ function setupShaders() {
             
             // Stellarium-style Point Spread Function (PSF)
             // 高光核心 (Highlight Core)
-            float core = exp(-r * 35.0) * 1.2;
+            // 將衰減係數降低 (35.0 -> 22.0) 讓所有星星本體變「胖」，避免只佔不到一個像素而造成閃爍
+            float core = exp(-r * 22.0) * 1.2;
             if (vMag < 2.0) {
-                core += exp(-r * 20.0) * clamp(2.0 - vMag, 0.0, 2.0) * 1.5; // 增強極亮星的核心
+                // 縮小最亮星的額外核心光暈範圍 (18.0 -> 28.0)
+                core += exp(-r * 28.0) * clamp(2.0 - vMag, 0.0, 2.0) * 1.2; 
             }
             
             // 柔和邊緣 (Soft Halo) + 十字星芒 (Cross Lens Flare)
             float halo = 0.0;
             float flare = 0.0;
             if (vMag < 3.0) {
-                // 再次大幅降低亮星光暈範圍與強度
+                // 再進一步縮小所有亮星的光暈範圍 (80.0 -> 100.0, 60.0 -> 80.0)
                 float intensity = pow(clamp(3.0 - vMag, 0.0, 3.0), 1.2);
-                halo = exp(-r * 40.0) * 0.02 * intensity;
-                halo += exp(-r * 25.0) * 0.01 * intensity; 
+                halo = exp(-r * 100.0) * 0.01 * intensity;
+                halo += exp(-r * 80.0) * 0.005 * intensity;
                 
                 // 十字星芒 (Lens Flare)
-                float crossX = exp(-abs(pt.x) * 120.0) * exp(-abs(pt.y) * 20.0);
-                float crossY = exp(-abs(pt.y) * 120.0) * exp(-abs(pt.x) * 20.0);
-                flare = (crossX + crossY) * 0.03 * intensity;
+                // 將星芒再稍微變粗 (75.0 -> 50.0)
+                float crossX = exp(-abs(pt.x) * 50.0) * exp(-abs(pt.y) * 8.0);
+                float crossY = exp(-abs(pt.y) * 50.0) * exp(-abs(pt.x) * 8.0);
+                flare = (crossX + crossY) * 0.25 * intensity;
             }
             
             // Combine with distance to center mask

@@ -4,6 +4,7 @@ import { state } from './core/state.js';
 import { horizonY, getXY, altAzToXY } from './core/camera.js';
 import { LAT_DEG, LON_DEG, LAT_RAD, toRad, toDeg, galToRaDec, raDecToAltAz } from './vendor/astronomy_engine.js';
 import { getFrameState } from './core/frameState.js';
+import { loadAstronomicalData } from './bootstrap.js';
 
 ('use strict');
 
@@ -13,10 +14,7 @@ const moonImg = new Image();
 moonImg.src = 'assets/moon.png';
 
 /* === STAR LOOKUP === */
-const STAR_BY_CN = {};
-STARS.forEach((s) => {
-  STAR_BY_CN[s.cn] = s;
-});
+let STAR_BY_CN = {};
 
 /* === COLORS === */
 function specColor(sp) {
@@ -986,21 +984,7 @@ function render(ts) {
   // 2. Render WebGL layer
   if (window.updateStarLOD) window.updateStarLOD(state.hFOV);
   if (window.renderWebGL) {
-    window.renderWebGL(
-      ts,
-      lst_deg,
-      starVisibility,
-      topRGB,
-      midRGB,
-      horRGB,
-      hy,
-      H,
-      { ra: sunRaDec.ra, dec: sunRaDec.dec },
-      { ra: moonRaDec.ra, dec: moonRaDec.dec },
-      moonPhase,
-      [], 
-      atmosphereEnabled
-    );
+    window.renderWebGL(fState, H, []);
   }
 
   // Render crisp native labels on 2D Canvas overlay
@@ -1027,6 +1011,10 @@ function render(ts) {
 }
 async function start() {
   try {
+    await loadAstronomicalData();
+    window.STARS.forEach((s) => {
+      STAR_BY_CN[s.cn] = s;
+    });
     if (window.initWebGL) await window.initWebGL();
     requestAnimationFrame(render);
   } catch (err) {
