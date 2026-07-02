@@ -22,6 +22,7 @@ uniform vec3 topRGB;
         }
         
         vec4 getProceduralSkyline(float rawU, float sz) {
+            vec4 result = vec4(0.0);
             float mountAlt = 0.0;
             mountAlt += (sin(rawU * 3.14159265 * 24.0) * 0.5 + 0.5) * 0.015;
             mountAlt += (sin(rawU * 3.14159265 * 70.0) * 0.5 + 0.5) * 0.008;
@@ -67,9 +68,9 @@ uniform vec3 topRGB;
                     color += vec3(1.0, 0.2, 0.2) * 1.5 * blink;
                 }
                 
-                return vec4(color, aaAlpha);
+                result = vec4(color, aaAlpha);
             }
-            return vec4(0.0);
+            return result;
         }
 
         // Interleaved Gradient Noise for raymarching and screen dither (better spectrum than static hash)

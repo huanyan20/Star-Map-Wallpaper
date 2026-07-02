@@ -65,7 +65,7 @@ async function initWebGL() {
   window.skyMaterial = new THREE.ShaderMaterial({
     vertexShader: skyVertexShader,
     fragmentShader: skyFragmentShader,
-    derivatives: true,
+    extensions: { derivatives: true },
     uniforms: {
       topRGB: { value: new THREE.Vector3() },
       midRGB: { value: new THREE.Vector3() },

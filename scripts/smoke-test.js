@@ -85,14 +85,21 @@ const server = http.createServer((request, response) => {
     let hasErrors = false;
 
     page.on('console', msg => {
+      const text = msg.text();
       if (msg.type() === 'error') {
-        const text = msg.text();
         if (text.includes('favicon.ico')) return; // Ignore favicon errors
         if (text.includes('Failed to load resource: the server responded with a status of 404')) return; // Ignore 404s like favicon from console
         console.log('PAGE ERROR (console):', text);
         hasErrors = true;
+      } else if (msg.type() === 'warning') {
+        if (text.includes('THREE.WebGLProgram') || text.includes('THREE.Material') || text.includes('f_getProceduralSkyline') || text.includes('WebGL') || text.includes('warning')) {
+          console.log('PAGE WARNING (WebGL):', text);
+          hasErrors = true;
+        } else {
+          console.log('PAGE LOG:', text);
+        }
       } else {
-        console.log('PAGE LOG:', msg.text());
+        console.log('PAGE LOG:', text);
       }
     });
     
