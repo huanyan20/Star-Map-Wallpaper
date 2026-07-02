@@ -1,8 +1,9 @@
 import { initControls } from './core/controls.js';
 import { initUI } from './ui/UIManager.js';
 import { state } from './core/state.js';
-import { horizonY, getXY } from './core/camera.js';
-import { LAT_DEG, LON_DEG, LAT_RAD, toRad, toDeg, julianDate, gmst, getLST, raDecToAltAz, getSunRaDec, getMoonRaDec, galToRaDec } from './vendor/astronomy_engine.js';
+import { horizonY, getXY, altAzToXY } from './core/camera.js';
+import { LAT_DEG, LON_DEG, LAT_RAD, toRad, toDeg, galToRaDec, raDecToAltAz } from './vendor/astronomy_engine.js';
+import { getFrameState } from './core/frameState.js';
 
 ('use strict');
 
@@ -162,60 +163,17 @@ const fpsEl = document.getElementById('fps-val');
 
 
 /* === DRAW FUNCTIONS === */
-// Background gradient cache
-let _bgCache = { t: -99, t2: -99, hy: -99, gSky: null, topRGB: null, midRGB: null, horRGB: null };
-function drawBackground(sunAlt_deg, ts) {
-  const hy = window.horizonY();
-  // Sky colour transitions: night → twilight → dawn → day
-  const t = Math.max(0, Math.min(1, (sunAlt_deg + 18) / 30)); // 0 at -18°, 1 at +12°
-  const t2 = Math.max(0, Math.min(1, (sunAlt_deg + 4) / 14)); // 0 at -4°, 1 at +10°
-
-  function lerp3(a, b, f) {
-    return a.map((v, i) => Math.round(v + (b[i] - v) * f));
-  }
-
-  // Only recompute gradient if sky colour changed meaningfully
-  const tR = Math.round(t * 200),
-    t2R = Math.round(t2 * 200),
-    hyR = Math.round(hy);
-  if (_bgCache.t !== tR || _bgCache.t2 !== t2R || _bgCache.hy !== hyR) {
-    const nightTop = [8, 11, 20]; // #080B14
-    const twilightTop = [8, 18, 52];
-    const dayTop = [30, 100, 200];
-
-    const nightMid = [18, 22, 41]; // #121629
-    const twilightMid = [20, 35, 75];
-    const dayMid = [80, 140, 215];
-
-    const nightHor = [42, 31, 29]; // #2A1F1D
-    const twilightHor = [30, 60, 110];
-    const dayHor = [150, 190, 230];
-
-    _bgCache.topRGB = lerp3(lerp3(nightTop, twilightTop, t), dayTop, t2);
-    _bgCache.midRGB = lerp3(lerp3(nightMid, twilightMid, t), dayMid, t2);
-    _bgCache.horRGB = lerp3(lerp3(nightHor, twilightHor, t), dayHor, t2);
-
-    // 2D Canvas fallback (less accurate but okay for fallback)
-    _bgCache.gSky = ctx.createLinearGradient(0, 0, 0, hy > 0 ? hy : H);
-    _bgCache.gSky.addColorStop(0, `rgb(${_bgCache.topRGB.join(',')})`);
-    _bgCache.gSky.addColorStop(0.5, `rgb(${_bgCache.midRGB.join(',')})`);
-    _bgCache.gSky.addColorStop(1, `rgb(${_bgCache.horRGB.join(',')})`);
-    _bgCache.t = tR;
-    _bgCache.t2 = t2R;
-    _bgCache.hy = hyR;
-  }
-  const horRGB = _bgCache.horRGB;
-
-  // ctx.fillStyle = _bgCache.gSky;
-  // ctx.fillRect(0, 0, W, Math.max(0, hy));
+// Background gradient cache (moved to frameState)
+function drawBackground(fState) {
+  const { topRGB, hy, ts, horRGB } = fState;
 
   // Ocean
   if (hy < H) {
     // drawOcean(hy, ts, horRGB);
   }
   // If sun is below horizon, fill from hy upward for below-screen case
-  if (hy >= H) {
-    ctx.fillStyle = `rgb(${_bgCache.topRGB.join(',')})`;
+  if (hy >= H && topRGB) {
+    ctx.fillStyle = `rgb(${topRGB.join(',')})`;
     ctx.fillRect(0, 0, W, H);
   }
 }
@@ -966,54 +924,11 @@ function drawEntities() {
 /* === MAIN LOOP === */
 
 let lastClockT = 0;
-
 let lastFrameT = 0;
-const astroCache = {
-  lastCalcT: -Infinity,
-  lastUnixMs: 0,
-  now: null,
-  lst_deg: 0,
-  sunRaDec: null,
-  sunAltAz: null,
-  sunAlt_deg: 0,
-  moonRaDec: null,
-  moonPhase: 0,
-  starVisibility: 1,
-};
-
-function updateAstronomyCache(ts, now) {
-  const unixMs = now.getTime();
-  const jumped = astroCache.lastUnixMs && Math.abs(unixMs - astroCache.lastUnixMs) > 60000;
-  if (!astroCache.now || jumped || ts - astroCache.lastCalcT >= 500) {
-    const jd = julianDate(now);
-    const lst_deg = getLST(now);
-    const sunRaDec = getSunRaDec(jd);
-    const sunAltAz = raDecToAltAz(sunRaDec.ra, sunRaDec.dec, lst_deg);
-    const sunAlt_deg = (sunAltAz.alt * 180) / Math.PI;
-    const moonRaDec = getMoonRaDec(jd);
-    const moonPhase = moonRaDec.phase;
-    const starVisibility = window.toggles.atmosphere
-      ? Math.max(0, Math.min(1, (-sunAlt_deg - 2) / 10))
-      : 1.0;
-    astroCache.lastCalcT = ts;
-    astroCache.now = now;
-    astroCache.lst_deg = lst_deg;
-    astroCache.sunRaDec = sunRaDec;
-    astroCache.sunAltAz = sunAltAz;
-    astroCache.sunAlt_deg = sunAlt_deg;
-    astroCache.moonRaDec = moonRaDec;
-    astroCache.moonPhase = moonPhase;
-    astroCache.starVisibility = starVisibility;
-  }
-  astroCache.lastUnixMs = unixMs;
-  return astroCache;
-}
 
 function render(ts) {
   if (lastFrameT === 0) lastFrameT = ts;
-
   const dt = (ts - lastFrameT) / 1000;
-
   lastFrameT = ts;
 
   // 慣性滑動 (Damping)
@@ -1023,7 +938,6 @@ function render(ts) {
       state.lookEl += state.velEl;
       state.lookEl = Math.max(toRad(-89.9), Math.min(toRad(89.9), state.lookEl));
       state.lookAz = ((state.lookAz % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-      // 調整阻尼為 0.92，讓滑行更長更順暢
       state.velAz *= 0.98;
       state.velEl *= 0.98;
     }
@@ -1031,10 +945,9 @@ function render(ts) {
 
   // 縮放慣性滑動
   if (Math.abs(state.velZoom) > 0.00001) {
-    // 降低倍率，讓縮放更平緩細緻
     state.hFOV *= Math.pow(1.03, state.velZoom * 2.0);
     state.hFOV = Math.max(toRad(15), Math.min(toRad(150), state.hFOV));
-    state.velZoom *= 0.98; // 調整縮放阻尼，增加滑行距離
+    state.velZoom *= 0.98; 
   }
 
   if (dt > 0 && dt < 0.5) updateEntities(dt);
@@ -1047,33 +960,22 @@ function render(ts) {
     lastFPSTime = ts;
   }
   const now = new Date();
-  const astro = updateAstronomyCache(ts, now);
-  const lst_deg = astro.lst_deg;
+  
+  // 1. Generate single frame state
+  const fState = getFrameState(ts, now);
+  fState.dt = dt;
+  const { lst_deg, sunRaDec, sunAltAz, sunAlt_deg, moonRaDec, moonPhase, starVisibility, topRGB, midRGB, horRGB, hy, atmosphereEnabled } = fState;
 
   if (ts - lastClockT > 200) {
-    updateClock(now);
+    // updateClock(now);
+    if (window.updateClock) window.updateClock(now);
     lastClockT = ts;
   }
 
-  updateCamCache();
+  if (window.updateCamCache) window.updateCamCache();
   buildStarPositionCache(lst_deg);
 
-  // Sun position
-  const sunRaDec = astro.sunRaDec;
-  const sunAltAz = astro.sunAltAz;
-  const sunAlt_deg = astro.sunAlt_deg;
-
-  // Moon position + phase
-  const moonRaDec = astro.moonRaDec;
-  const moonPhase = astro.moonPhase;
-  // Moon horizontal coordinates are cached with the RA/Dec update cadence.
-
-  // Stars invisible in daylight (above -6° sun is civil twilight end)
-  const starVisibility = astro.starVisibility;
-
-  // 1. Calculate background colors
-  const bgSunAlt = window.toggles.atmosphere ? sunAlt_deg : -18;
-  drawBackground(bgSunAlt, ts); // Updates _bgCache
+  drawBackground(fState); 
 
   ctx.clearRect(0, 0, W, H);
   const webglLabels = buildWebGLLabels(lst_deg, starVisibility);
@@ -1085,25 +987,24 @@ function render(ts) {
       ts,
       lst_deg,
       starVisibility,
-      _bgCache.topRGB,
-      _bgCache.midRGB,
-      _bgCache.horRGB,
-      _bgCache.hy,
+      topRGB,
+      midRGB,
+      horRGB,
+      hy,
       H,
       { ra: sunRaDec.ra, dec: sunRaDec.dec },
       { ra: moonRaDec.ra, dec: moonRaDec.dec },
       moonPhase,
-      [], // Pass empty array to disable blurry MSDF labels
-      window.toggles.atmosphere
+      [], 
+      atmosphereEnabled
     );
   }
 
   // Render crisp native labels on 2D Canvas overlay
   drawLabels2D(webglLabels);
-  // drawBackground(window.toggles.atmosphere ? sunAlt_deg : -18, ts); // Handled before clearRect
-  if (window.toggles.atmosphere) {
+  if (atmosphereEnabled) {
     drawHorizonGlow(sunAlt_deg, sunAltAz.az);
-    drawAtmosphericEffects(astro);
+    drawAtmosphericEffects(fState);
   }
 
   // Sun (draw below clouds/stars so it blends with sky naturally)

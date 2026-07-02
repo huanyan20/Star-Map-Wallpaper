@@ -9,7 +9,8 @@
     "build:assets": "node scripts/build_assets.js",
     "build:tycho2": "node scripts/build_tycho2.js",
     "format": "prettier --write \"**/*.{js,json,html,css}\"",
-    "test:smoke": "npm run build && node scripts/smoke-test.js"
+    "test:smoke": "npm run build && node scripts/smoke-test.js",
+    "test:unit": "node --test scripts/test_math.js scripts/test_grids.js scripts/test_stars.js"
   },
   "devDependencies": {
     "http-server": "^14.1.1",

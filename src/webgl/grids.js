@@ -76,8 +76,7 @@ function buildThickLineGeo(flatPosArray, w) {
   return geo;
 }
 
-function setupGrids() {
-  // 1. Equatorial Grid
+function setupEquatorialGrid() {
   const eqPos = [];
   for (let dec = -60; dec <= 80; dec += 20) {
     for (let ra = 0; ra <= 24; ra += 0.5) {
@@ -117,8 +116,9 @@ function setupGrids() {
   window.eqGridMesh = new THREE.Mesh(eqGeo, window.createGridMaterial('#ff80a0', 0.0, 0.0, 0.15));
   window.eqGridMesh.visible = false;
   window.scene.add(window.eqGridMesh);
+}
 
-  // 2. Ecliptic
+function setupEclipticGrid() {
   const ecPos = [];
   const eps = (23.439 * Math.PI) / 180;
   for (let lambda_deg = 0; lambda_deg <= 360; lambda_deg += 2) {
@@ -133,8 +133,9 @@ function setupGrids() {
   window.eclipticMesh = new THREE.Mesh(ecGeo, window.createGridMaterial('#ffb040', 0.0, 0.0, 0.15));
   window.eclipticMesh.visible = false;
   window.scene.add(window.eclipticMesh);
+}
 
-  // 3. Alt-Az Grid (Horizontal coords)
+function setupAltAzGrid() {
   const azPos = [];
   for (let alt = 0; alt <= 90; alt += 15) {
     for (let az = 0; az <= 360; az += 2) {
@@ -165,6 +166,12 @@ function setupGrids() {
   );
   window.altAzGridMesh.visible = false;
   window.scene.add(window.altAzGridMesh);
+}
+
+function setupGrids() {
+  setupEquatorialGrid();
+  setupEclipticGrid();
+  setupAltAzGrid();
 }
 
 class LabelLayer {

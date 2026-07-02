@@ -127,7 +127,7 @@ window.updateStarLOD = function (hFOV) {
   }
 };
 
-function setupStars(starCatalog) {
+function setupFieldStars(starCatalog) {
   if (starCatalog && starCatalog.count > 0) {
     window.fieldStarsGeo = new THREE.BufferGeometry();
     window.fieldStarsGeo.setAttribute('position', new THREE.BufferAttribute(starCatalog.positions, 3));
@@ -152,7 +152,6 @@ function setupStars(starCatalog) {
       const star = REAL_STARS[i];
       const mag = star[2];
 
-      // Only move dim stars to GPU to avoid duplicating bright stars which are handled in window.namedStarsMesh
       if (mag <= 3.0) continue;
 
       const ra_rad = (star[0] * Math.PI) / 180;
@@ -167,12 +166,12 @@ function setupStars(starCatalog) {
 
       tempMags.push(mag);
 
-      let cIdx = 3; // default white-blue
+      let cIdx = 3; 
       if (bv < 0.0)
-        cIdx = 0; // Blue
+        cIdx = 0; 
       else if (bv > 1.4)
-        cIdx = 1; // Orange/Red
-      else if (bv > 0.6) cIdx = 2; // Yellow
+        cIdx = 1; 
+      else if (bv > 0.6) cIdx = 2; 
 
       const c = colors[cIdx];
       tempColors.push(c[0], c[1], c[2]);
@@ -186,7 +185,9 @@ function setupStars(starCatalog) {
     window.fieldStarsMesh = new THREE.Points(window.fieldStarsGeo, window.starsMaterial);
     window.scene.add(window.fieldStarsMesh);
   }
+}
 
+function setupNamedStars() {
   if (typeof STARS !== 'undefined') {
     const numNamed = STARS.length;
     const positions = new Float32Array(numNamed * 3);
@@ -203,12 +204,11 @@ function setupStars(starCatalog) {
       positions[i * 3 + 1] = Math.cos(dec_rad) * Math.sin(ra_rad);
       positions[i * 3 + 2] = Math.sin(dec_rad);
 
-      // True magnitude, no artificial boost
       mags[i] = mag;
 
       let r = 1.0,
         g = 0.95,
-        b = 0.7; // Default to G type
+        b = 0.7; 
       const sp = star.sp ? star.sp.charAt(0) : 'G';
       if (sp === 'O' || sp === 'B') {
         r = 0.5;
@@ -249,10 +249,12 @@ function setupStars(starCatalog) {
     window.namedStarsMesh = new THREE.Points(window.namedStarsGeo, window.starsMaterial);
     window.scene.add(window.namedStarsMesh);
   }
+}
 
+function setupConstellationLines() {
   if (typeof CONSTELLATION_SEGMENTS !== 'undefined') {
     const numLines = CONSTELLATION_SEGMENTS.length;
-    const linePositions = new Float32Array(numLines * 6 * 3); // 6 vertices per quad (2 triangles)
+    const linePositions = new Float32Array(numLines * 6 * 3); 
     const lineMidPositions = new Float32Array(numLines * 6 * 3);
     const lineUVs = new Float32Array(numLines * 6 * 2);
 
@@ -278,7 +280,6 @@ function setupStars(starCatalog) {
       const dir = new THREE.Vector3().subVectors(B, A).normalize();
       const widthDir = new THREE.Vector3().crossVectors(dir, mid).normalize();
 
-      // Increase geometry width significantly to prevent geometry clipping when zooming out
       const w = 0.02;
 
       const v0 = new THREE.Vector3().copy(A).addScaledVector(widthDir, w);
@@ -286,7 +287,6 @@ function setupStars(starCatalog) {
       const v2 = new THREE.Vector3().copy(B).addScaledVector(widthDir, w);
       const v3 = new THREE.Vector3().copy(B).addScaledVector(widthDir, -w);
 
-      // Triangle 1: v0, v1, v2
       linePositions[i * 18 + 0] = v0.x;
       linePositions[i * 18 + 1] = v0.y;
       linePositions[i * 18 + 2] = v0.z;
@@ -304,7 +304,6 @@ function setupStars(starCatalog) {
       lineUVs[i * 12 + 4] = 1;
       lineUVs[i * 12 + 5] = 1;
 
-      // Triangle 2: v2, v1, v3
       linePositions[i * 18 + 9] = v2.x;
       linePositions[i * 18 + 10] = v2.y;
       linePositions[i * 18 + 11] = v2.z;
@@ -337,6 +336,12 @@ function setupStars(starCatalog) {
     window.constellationLineMesh = new THREE.Mesh(lineGeo, window.constellationLinesMaterial);
     window.scene.add(window.constellationLineMesh);
   }
+}
+
+function setupStars(starCatalog) {
+  setupFieldStars(starCatalog);
+  setupNamedStars();
+  setupConstellationLines();
 }
 
 window.setupStars = setupStars;
