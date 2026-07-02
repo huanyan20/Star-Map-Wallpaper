@@ -3,6 +3,10 @@ const path = require('path');
 const https = require('https');
 const zlib = require('zlib');
 const readline = require('readline');
+const hp = require('healpixjs');
+
+const nside = 2; // HEALPix nside=2 => 48 chunks
+const healpix = new hp.Healpix(nside);
 
 const root = path.resolve(__dirname, '..');
 const assetsDir = path.join(root, 'public', 'assets');
@@ -81,7 +85,13 @@ function colorForBv(bv) {
   return kelvinToRGB(clampedT);
 }
 
-async function processTycho2(chunk1, chunk2) {
+function getHealpixChunk(x, y, z) {
+  const vec = new hp.Vec3(x, y, z);
+  const pt = new hp.Pointing(vec);
+  return healpix.ang2pix(pt).toString();
+}
+
+async function processTycho2(chunks) {
   console.log('Parsing Tycho-2 dataset parts...');
   let totalProcessed = 0;
   let skipped = 0;
@@ -102,13 +112,9 @@ async function processTycho2(chunk1, chunk2) {
     for await (const line of rl) {
       if (line.length < 130) continue;
 
-      // Byte 16-27 RA (1-indexed) -> 15-27 in 0-indexed
       const raStr = line.substring(15, 27).trim();
-      // Byte 29-40 Dec -> 28-40
       const decStr = line.substring(28, 40).trim();
-      // Byte 111-115 BT -> 110-115
       const btStr = line.substring(110, 115).trim();
-      // Byte 124-128 VT -> 123-128
       const vtStr = line.substring(123, 128).trim();
 
       if (!raStr || !decStr || !vtStr) {
@@ -119,54 +125,47 @@ async function processTycho2(chunk1, chunk2) {
       const raDeg = parseFloat(raStr);
       const decDeg = parseFloat(decStr);
       const vt = parseFloat(vtStr);
-      const bt = btStr ? parseFloat(btStr) : vt; // if no BT, assume B-V = 0
+      const bt = btStr ? parseFloat(btStr) : vt;
 
-      // Skip bright stars that are already in real_stars.js (mag <= 6.5)
       if (vt <= 6.5) {
         skipped++;
         continue;
       }
 
-      // Calculate Cartesian coordinates
       const ra = (raDeg * Math.PI) / 180;
       const dec = (decDeg * Math.PI) / 180;
       const px = Math.cos(dec) * Math.cos(ra);
       const py = Math.cos(dec) * Math.sin(ra);
       const pz = Math.sin(dec);
 
-      // Color
       const bv = bt - vt;
       const rgb = colorForBv(bv);
 
-      const star = {
-        px,
-        py,
-        pz,
-        mag: vt,
-        r: rgb[0],
-        g: rgb[1],
-        b: rgb[2],
-      };
+      const star = { px, py, pz, mag: vt, r: rgb[0], g: rgb[1], b: rgb[2] };
+      const chunkId = getHealpixChunk(px, py, pz);
+
+      if (!chunks[chunkId]) {
+        chunks[chunkId] = { lod1: [], lod2: [] };
+      }
 
       if (vt <= 9.5) {
-        chunk1.push(star);
+        chunks[chunkId].lod1.push(star);
       } else {
-        chunk2.push(star);
+        chunks[chunkId].lod2.push(star);
       }
 
       totalProcessed++;
       if (totalProcessed % 250000 === 0) {
         console.log(`Processed ${totalProcessed} stars...`);
       }
-    } // End of file loop
-  } // End of parts loop
+    }
+  }
 
   console.log(`Parsing complete. Total: ${totalProcessed}. Skipped: ${skipped}.`);
-  console.log(`Chunk 1: ${chunk1.length} stars.`);
-  console.log(`Chunk 2: ${chunk2.length} stars.`);
 }
 
 function writeBinary(filename, starsArray) {
+  if (starsArray.length === 0) return;
   const count = starsArray.length;
   const headerBytes = 32;
   const positionsOffset = headerBytes;
@@ -175,7 +174,6 @@ function writeBinary(filename, starsArray) {
   const totalBytes = colorOffset + count * 3;
   const buffer = Buffer.alloc(totalBytes);
 
-  // Write Header
   buffer.write('STRB', 0, 4, 'ascii');
   buffer.writeUInt32LE(1, 4);
   buffer.writeUInt32LE(count, 8);
@@ -202,7 +200,27 @@ function writeBinary(filename, starsArray) {
 
   const outPath = path.join(assetsDir, filename);
   fs.writeFileSync(outPath, buffer);
-  console.log(`Wrote ${filename}: ${count} stars, ${(totalBytes / 1024 / 1024).toFixed(2)} MB`);
+}
+
+function computeBoundingSphere(starsLOD1, starsLOD2) {
+  const allStars = starsLOD1.concat(starsLOD2);
+  if (allStars.length === 0) return { center: [1, 0, 0], radiusAngle: 0 };
+  
+  let cx = 0, cy = 0, cz = 0;
+  for (const s of allStars) {
+    cx += s.px; cy += s.py; cz += s.pz;
+  }
+  const len = Math.hypot(cx, cy, cz);
+  cx /= len; cy /= len; cz /= len;
+
+  let maxAngle = 0;
+  for (const s of allStars) {
+    const dot = cx * s.px + cy * s.py + cz * s.pz;
+    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+    if (angle > maxAngle) maxAngle = angle;
+  }
+  // Add 0.05 radians (~2.8 degrees) padding
+  return { center: [cx, cy, cz], radiusAngle: maxAngle + 0.05 };
 }
 
 async function main() {
@@ -218,14 +236,33 @@ async function main() {
       await downloadFile(url, localPath);
     }
 
-    const chunk1 = [];
-    const chunk2 = [];
-    await processTycho2(chunk1, chunk2);
+    const chunks = {};
+    await processTycho2(chunks);
 
-    writeBinary('stars_chunk_1.bin', chunk1);
-    writeBinary('stars_chunk_2.bin', chunk2);
+    const meta = {};
+    let totalFiles = 0;
+    
+    for (const [id, c] of Object.entries(chunks)) {
+      if (c.lod1.length > 0) {
+        writeBinary(`stars_lod1_${id}.bin`, c.lod1);
+        totalFiles++;
+      }
+      if (c.lod2.length > 0) {
+        writeBinary(`stars_lod2_${id}.bin`, c.lod2);
+        totalFiles++;
+      }
+      
+      const sphere = computeBoundingSphere(c.lod1, c.lod2);
+      meta[id] = {
+        center: sphere.center,
+        radiusAngle: sphere.radiusAngle,
+        lod1Count: c.lod1.length,
+        lod2Count: c.lod2.length
+      };
+    }
 
-    console.log('All done!');
+    fs.writeFileSync(path.join(assetsDir, 'chunks_meta.json'), JSON.stringify(meta, null, 2));
+    console.log(`All done! Wrote ${totalFiles} chunk files and chunks_meta.json.`);
   } catch (err) {
     console.error('Error:', err);
   }

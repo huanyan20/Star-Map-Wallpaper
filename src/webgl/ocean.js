@@ -32,7 +32,7 @@ function setupOcean() {
   });
 
   window.oceanMesh = new THREE.Mesh(oceanGeo, window.oceanMaterial);
-  // 讓海?��? renderOrder 大於?��? (0)，這樣?��?就�?被繪製在海面?��?下」�??��??��?度�??��?�???��??��?
+  // 讓海面的 renderOrder 大於星星 (0)，這樣星星就會被繪製在海面「之下」，配合透明度達成真正的透底效果
   window.oceanMesh.renderOrder = 10;
   window.scene.add(window.oceanMesh);
 }

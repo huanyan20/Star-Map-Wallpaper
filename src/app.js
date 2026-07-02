@@ -223,9 +223,6 @@ function drawHorizonGlow(sunAlt_deg, sunAz_rad) {
   let azDiff = sunAz_rad - state.lookAz;
   azDiff = ((azDiff + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 
-  // Screen X position of the sun's azimuth on the horizon
-  const sunX = CX + (azDiff / state.hFOV) * W;
-
   // Anti-solar azimuth diff
   let antiAzDiff = azDiff > 0 ? azDiff - Math.PI : azDiff + Math.PI;
   const antiSunX = CX + (antiAzDiff / state.hFOV) * W;
@@ -265,7 +262,13 @@ function drawHorizonGlow(sunAlt_deg, sunAz_rad) {
   const glowT = Math.max(0, 1 - Math.abs(sunAlt_deg - 3) / 15); // Strongest at +3°
   const dayGlowT = Math.max(0, Math.min(1, (sunAlt_deg - 10) / 20)); // Daylight halo
 
-  if ((glowT > 0.05 || dayGlowT > 0.05) && sunX > -W * 1.5 && sunX < W * 2.5) {
+  // Calculate actual sun projection for the sun glow
+  const sunP = altAzToXY((sunAlt_deg * Math.PI) / 180, sunAz_rad);
+
+  if ((glowT > 0.05 || dayGlowT > 0.05) && sunP) {
+    const sx = sunP.x;
+    const sy = sunP.y;
+
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
@@ -273,19 +276,19 @@ function drawHorizonGlow(sunAlt_deg, sunAz_rad) {
     if (dayGlowT > 0) {
       ctx.globalAlpha = dayGlowT;
       const radius = W * 1.2;
-      const dGrad = ctx.createRadialGradient(sunX, hy, 0, sunX, hy, radius);
+      const dGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius);
       dGrad.addColorStop(0, 'rgba(255,255,255,0.7)');
       dGrad.addColorStop(0.3, 'rgba(200,220,255,0.25)');
       dGrad.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = dGrad;
-      ctx.fillRect(sunX - radius, hy - radius, radius * 2, radius * 2);
+      ctx.fillRect(sx - radius, sy - radius, radius * 2, radius * 2);
     }
 
     // Sunset/Sunrise Orange/Red Scatter
     if (glowT > 0) {
       ctx.globalAlpha = glowT;
       const radius = W * 1.5;
-      const sGrad = ctx.createRadialGradient(sunX, hy + 30, 0, sunX, hy + 30, radius);
+      const sGrad = ctx.createRadialGradient(sx, sy + 30, 0, sx, sy + 30, radius);
       // Dynamic colour based on sun altitude (lower = redder)
       const altShift = Math.max(0, Math.min(1, (sunAlt_deg + 4) / 8)); // 0=-4(red), 1=+4(yellow)
       const c1 = altShift > 0.5 ? '255,240,200' : '255,200,100';
@@ -300,7 +303,7 @@ function drawHorizonGlow(sunAlt_deg, sunAz_rad) {
       sGrad.addColorStop(1, 'rgba(0,0,0,0)');
 
       ctx.fillStyle = sGrad;
-      ctx.fillRect(sunX - radius, hy - radius, radius * 2, radius * 2);
+      ctx.fillRect(sx - radius, sy - radius, radius * 2, radius * 2);
     }
     ctx.restore();
   }

@@ -12,6 +12,9 @@ function updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnable
     window.skyMaterial.uniforms.lookAz.value = window.lookAz;
     window.skyMaterial.uniforms.lookEl.value = window.lookEl;
     window.skyMaterial.uniforms.focalLen.value = window.focalLen();
+    if (window.skyMaterial.uniforms.dpr) {
+      window.skyMaterial.uniforms.dpr.value = window.devicePixelRatio || 1.0;
+    }
     
     if (typeof window.skyMaterial.uniforms.atmosphereBlend === 'undefined') {
         window.skyMaterial.uniforms.atmosphereBlend = { value: 1.0 };

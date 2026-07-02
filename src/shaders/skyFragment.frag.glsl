@@ -12,6 +12,7 @@ uniform vec3 topRGB;
         uniform float lookEl;
         uniform float focalLen;
         uniform float atmosphereBlend;
+        uniform float dpr;
 
         // ------------------
         // Procedural Skyline
@@ -73,7 +74,7 @@ uniform vec3 topRGB;
             return result;
         }
 
-        // Interleaved Gradient Noise for raymarching and screen dither (better spectrum than static hash)
+        // Interleaved Gradient Noise for raymarching (better spectrum than static hash to hide integration steps)
         float interleavedGradientNoise(vec2 p) {
             vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
             return fract(magic.z * fract(dot(p, magic.xy)));
@@ -165,13 +166,12 @@ uniform vec3 topRGB;
             float cosTheta = dot(r, sunDir);
             float phaseR = 3.0 / (16.0 * 3.14159) * (1.0 + cosTheta * cosTheta);
             
-            // 降低 g 值 (從 0.82 降至 0.76)，讓光暈邊緣有更平緩柔和的過渡，徹底消除太陽周圍的色階與硬圓圈
-            float g = 0.76; 
+            // 微調 g 值 (0.76 -> 0.79)，讓光暈更集中，縮小太陽大氣散射的範圍，同時保持一定的柔和度
+            float g = 0.79; 
             float phaseM = 3.0 / (8.0 * 3.14159) * ((1.0 - g * g) * (1.0 + cosTheta * cosTheta)) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * cosTheta, 1.5));
             
-            // 移除硬性截斷 (min)，改用平滑的縮放，讓光暈自然衰減，不會形成邊界明顯的圓塊
-            // 因為 g 值降低，峰值亮度會下降，所以稍微調高乘數補償 (0.08 -> 0.12)
-            phaseM = phaseM * 0.12; 
+            // 大幅降低 Mie 散射的整體強度 (0.12 -> 0.04)，解決散射過大的問題
+            phaseM = phaseM * 0.04; 
             
             // 稍微調降整體的亮度乘數，使整片天空暗下來
             vec3 scatter = 8.0 * (rayleigh * betaR * phaseR + mie * betaM * phaseM);
@@ -184,15 +184,15 @@ uniform vec3 topRGB;
 
         void main() {
             // Inverse Stereographic Projection to find Altitude (sz)
-            // Use gl_FragCoord directly to completely avoid full-screen quad triangle interpolation artifacts!
-            float px = gl_FragCoord.x - resolution.x * 0.5;
-            float py = gl_FragCoord.y - resolution.y * 0.5;
-            float R2 = px*px + py*py;
-            float rho2 = R2 / (4.0 * max(focalLen * focalLen, 0.001));
+            // Divide by focal length early to avoid catastrophic precision loss at high zoom levels!
+            float fLen = max(focalLen, 0.001);
+            float px = (gl_FragCoord.x / dpr - resolution.x * 0.5) / fLen;
+            float py = (gl_FragCoord.y / dpr - resolution.y * 0.5) / fLen;
+            float rho2 = (px*px + py*py) / 4.0;
             float depth = (1.0 - rho2) / (1.0 + rho2);
             float k = 1.0 + rho2;
-            float pu = py / (k * focalLen);
-            float pr = px / (k * focalLen);
+            float pu = py / k;
+            float pr = px / k;
             
             // Reconstruct view vectors
             float lx = sin(lookAz) * cos(lookEl);
@@ -290,14 +290,13 @@ uniform vec3 topRGB;
                 finalColor = blendedOcean * 0.15 + vec3(0.001, 0.002, 0.005);
             }
             
-            // Screen-space RGB Dither to eliminate color banding (concentric circles)
-            // Independent noise for RGB channels breaks quantization steps much better than monochromatic noise
+            // Static, subtle screen-space dither to eliminate banding without causing noticeable grain
             vec3 dither = vec3(
-                interleavedGradientNoise(gl_FragCoord.xy),
-                interleavedGradientNoise(gl_FragCoord.xy + vec2(12.3, 45.6)),
-                interleavedGradientNoise(gl_FragCoord.xy + vec2(78.9, 12.3))
+                hash(gl_FragCoord.xy),
+                hash(gl_FragCoord.xy + vec2(12.3, 45.6)),
+                hash(gl_FragCoord.xy + vec2(78.9, 12.3))
             ) - 0.5;
-            finalColor += dither * 0.015; 
+            finalColor += dither * 0.004; 
             
             gl_FragColor = vec4(finalColor, 1.0);
         }

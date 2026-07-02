@@ -21,6 +21,7 @@
     "vite-plugin-glsl": "^1.6.0"
   },
   "dependencies": {
+    "healpixjs": "^2.0.0",
     "three": "^0.185.1"
   }
 }

@@ -81,6 +81,7 @@ async function initWebGL() {
       sunPosition: { value: new THREE.Vector3(0, 0, -1) },
       turbidity: { value: 1.5 },
       atmosphereBlend: { value: 1.0 },
+      dpr: { value: window.devicePixelRatio || 1.0 },
     },
     depthWrite: false,
     transparent: true,

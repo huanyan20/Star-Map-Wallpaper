@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 async function loadStarCatalog() {
+  fetchChunksMeta();
   if (window.starCatalogPromise) return window.starCatalogPromise;
   window.starCatalogPromise = fetch('assets/stars.bin')
     .then((resp) => {
@@ -30,25 +31,50 @@ async function loadStarCatalog() {
   return window.starCatalogPromise;
 }
 
-window.STAR_CHUNKS = [
-  // ?�入 loadFov ?�早觸發網路下�?，避?�縮?��?快�??��??�步下�?延遲?��??�「�?塊瞬?��???(Pop-in)??
-  {
-    url: 'assets/stars_chunk_1.bin',
-    loadFov: (120 * Math.PI) / 180,
-    maxFov: (60 * Math.PI) / 180,
-    loaded: false,
-    promise: null,
-    pointsMesh: null,
-  },
-  {
-    url: 'assets/stars_chunk_2.bin',
-    loadFov: (60 * Math.PI) / 180,
-    maxFov: (30 * Math.PI) / 180,
-    loaded: false,
-    promise: null,
-    pointsMesh: null,
-  },
-];
+window.STAR_CHUNKS = [];
+let chunksMetaPromise = null;
+
+export function fetchChunksMeta() {
+  if (!chunksMetaPromise) {
+    chunksMetaPromise = fetch('assets/chunks_meta.json')
+      .then((r) => {
+        if (!r.ok) throw new Error('No chunks_meta.json found');
+        return r.json();
+      })
+      .then((meta) => {
+        for (const [id, data] of Object.entries(meta)) {
+          if (data.lod1Count > 0) {
+            window.STAR_CHUNKS.push({
+              id: `lod1_${id}`,
+              url: `assets/stars_lod1_${id}.bin`,
+              loadFov: (120 * Math.PI) / 180,
+              maxFov: (60 * Math.PI) / 180,
+              center: new THREE.Vector3(...data.center),
+              radiusAngle: data.radiusAngle,
+              loaded: false,
+              promise: null,
+              pointsMesh: null,
+            });
+          }
+          if (data.lod2Count > 0) {
+            window.STAR_CHUNKS.push({
+              id: `lod2_${id}`,
+              url: `assets/stars_lod2_${id}.bin`,
+              loadFov: (60 * Math.PI) / 180,
+              maxFov: (30 * Math.PI) / 180,
+              center: new THREE.Vector3(...data.center),
+              radiusAngle: data.radiusAngle,
+              loaded: false,
+              promise: null,
+              pointsMesh: null,
+            });
+          }
+        }
+      })
+      .catch((e) => console.warn('Spatial chunks not available:', e));
+  }
+  return chunksMetaPromise;
+}
 
 async function loadStarChunk(url) {
   const resp = await fetch(url);
@@ -95,13 +121,37 @@ window.updateStarLOD = function (hFOV) {
     if (mat.uniforms.currentFov) mat.uniforms.currentFov.value = window.hFOV;
   }
 
+  const lookAz = window.starsMaterial.uniforms.lookAz.value;
+  const lookEl = window.starsMaterial.uniforms.lookEl.value;
+  const lx = Math.sin(lookAz) * Math.cos(lookEl);
+  const ly = Math.cos(lookAz) * Math.cos(lookEl);
+  const lz = Math.sin(lookEl);
+  const lookDirHoriz = new THREE.Vector3(lx, ly, lz);
+  
+  // Transform look vector from Horizontal to Equatorial to match chunk centers
+  const eqToHoriz = window.starsMaterial.uniforms.eqToHoriz.value;
+  const horizToEq = eqToHoriz.clone().transpose();
+  const lookDirEq = lookDirHoriz.applyMatrix3(horizToEq);
+
+  const aspect = window.innerHeight / window.innerWidth;
+  const diagFov = window.hFOV * Math.sqrt(1 + aspect * aspect);
+  const cameraRadius = diagFov / 2;
+
   for (const chunk of window.STAR_CHUNKS) {
-    // 使用 loadFov 來進�??�早?�景載入，確保使?�者縮?�到 maxFov ?��?Mesh 已�??�場?�中待命
-    // Shader ?�自?��?證�???maxFov 之�?完全?��?，�?此�??��???Scene 絕�?安全
     const triggerFov = chunk.loadFov || chunk.maxFov;
-    if (window.hFOV <= triggerFov) {
+    const fovOk = window.hFOV <= triggerFov;
+    
+    let visible = false;
+    if (fovOk) {
+      const dot = lookDirEq.dot(chunk.center);
+      const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+      if (angle <= cameraRadius + chunk.radiusAngle) {
+        visible = true;
+      }
+    }
+
+    if (visible) {
       if (!chunk.loaded && !chunk.promise) {
-        // Not loaded, fetch it
         chunk.promise = loadStarChunk(chunk.url)
           .then((geo) => {
             const mat = window.starsMaterial.clone();
@@ -114,7 +164,7 @@ window.updateStarLOD = function (hFOV) {
           })
           .catch((e) => {
             console.error('Failed to load LOD chunk:', chunk.url, e);
-            chunk.promise = null; // retry possible
+            chunk.promise = null;
           });
       } else if (chunk.loaded && chunk.pointsMesh) {
         chunk.pointsMesh.visible = true;

@@ -30,7 +30,7 @@ function setupShaders() {
         varying vec2 vPosHash;
         varying float vPtRatio;
 
-        // ?�入簡單??hash ?�數?�於?��??��??��?，解決�?表�??��?子�? (Quantization) 導致?��??��??��?�?
+        // 加入簡單的 hash 函數用於隨機打亂星等，解決星表資料量子化 (Quantization) 導致的同時閃現問題
         float hash(vec2 p) {
             return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
         }
@@ -55,7 +55,7 @@ function setupShaders() {
             float perceivedMag = starMag + 0.15 * airMass;
             
             // Map magnitude to visual intensity (monitor display compensation)
-            // 縮�??��??��?亮度差�?，�?高�??��?低亮�?(0.35 -> 0.55)
+            // 縮小星等間的亮度差距，提高暗星最低亮度 (0.35 -> 0.55)
             float baseIntensity = clamp(1.0 - (perceivedMag + 1.5) / 13.0, 0.55, 1.0); 
             
             vColor = starColor;
@@ -65,50 +65,50 @@ function setupShaders() {
             float magFade = 1.0;
             
             if (chunkMaxFov > 10.0) { 
-                // 1. ?��?亮�? (Base Stars): ?�在極度�???�淡?��?縮放?�維??100% 顯示
+                // 1. 基礎亮星 (Base Stars): 只在極度廣角時淡出，縮放時維持 100% 顯示
                 if (currentDeg > 90.0) {
                     float t = clamp((currentDeg - 90.0) / 95.0, 0.0, 1.0);
                     float limitMag = mix(8.5, 3.5, t);
                     magFade = clamp((limitMag - starMag) * 0.5, 0.0, 1.0);
                 }
             } else { 
-                // 2. ?��??��?�?(LOD Chunks): 完全?�於?�單顆�?�?(starMag)?��?算獨立�?淡入視�??�??
-                // ?�是?�正?�「�??��?等細緻淡?�」�?每�??�都?�自己�?屬�?起�??��?點�?絕�?不�??��?彈出�?
+                // 2. 動態暗星塊 (LOD Chunks): 完全基於「單顆星等 (starMag)」計算獨立的淡入視角區間
+                // 這是真正的「依照星等細緻淡入」，每顆星都有自己專屬的起點與終點，絕對不會同時彈出！
                 
-                // ?��?極解決�?表�?子�??��? (Dithering)??
-                // ?�於?�表資�??��? 300 ?�獨立�??��??�值�?�?��?��???Float ?��??��?幾�?顆�??��?
-                // 如�?不�?亂�??�幾?��??��??��?一??Frame ?��?滿足?��?，�??��?覺�??�「�??�出?�」�?
-                // ?�們利?�這�??��?座�? hash ?��?一?�微小�??��??�移 (-0.15 ??+0.15 ?��?)，�???���??��??�數?��?
+                // 【終極解決星表量子化問題 (Dithering)】
+                // 由於星表資料只有 300 個獨立的星等數值，代表同一個 Float 值下擠了幾千顆星星。
+                // 如果不打亂，這幾千顆星會在同一個 Frame 瞬間滿足公式，導致視覺上的「同時出現」。
+                // 我們利用這顆星的座標 hash 產生一個微小的隨機偏移 (-0.15 到 +0.15 星等)，打散這些相同的數值！
                 float magOffset = (hash(position.xy) * 0.3) - 0.15;
                 float ditheredMag = starMag + magOffset;
                 
-                // ?��??��?經�?法�?，設定基準�?6.0 等�???FOV=60 完全顯示，�???3.0 等�??�要�? FOV 縮�?一??
-                // 計�??��??�「�?該�? 100% 顯示?��??��?視�? (endFov)
+                // 根據物理經驗法則，設定基準：6.0 等星在 FOV=60 完全顯示，每暗 3.0 等，需要的 FOV 縮小一半
+                // 計算這顆星「應該要 100% 顯示」的目標視角 (endFov)
                 float endFov = 60.0 * exp2((6.0 - ditheredMag) / 3.0);
                 
-                // 設�?淡入起�? (startFov)：�??��??�八度�?視�?大�??��?）�?始淡??
-                // 例�? 9.0 等�??�在 FOV=60 ?�透�?度為 0，縮小到 FOV=30 ?�透�?度�???1
+                // 設定淡入起點 (startFov)：提早一個八度（視野大一倍時）開始淡入
+                // 例如 9.0 等星會在 FOV=60 時透明度為 0，縮小到 FOV=30 時透明度達到 1
                 float startFov = endFov * 2.0;
                 
-                // 計�??��??��??��??�淡?�進度
+                // 計算單顆星星獨立的淡入進度
                 float linearFade = clamp((startFov - currentDeg) / max(startFov - endFov, 0.1), 0.0, 1.0);
                 
-                // ?��?極平滑�? (Ease-in)??
-                // ?�為 Fragment Shader ?��?繪製?��??��??��??��?高�? 7 ?��?亮度增�?
-                // ?��?三次?�曲線�?徹�?壓平?�出?��??�亮度暴增�?強迫?��?緩緩浮現??
+                // 【終極平滑化 (Ease-in)】
+                // 因為 Fragment Shader 為了繪製星芒與光暈，具有高達 7 倍的亮度增幅
+                // 加上三次方曲線，徹底壓平剛出現時的亮度暴增，強迫星星緩緩浮現。
                 magFade = linearFade * linearFade * linearFade;
             }
 
             
             // Alpha mapped to visual intensity (twinkle is applied in fragment shader)
-            vAlpha = baseIntensity * clamp(starVisibility * 1.8, 0.0, 1.0) * magFade; // ?��??��??��?度基�?
+            vAlpha = baseIntensity * clamp(starVisibility * 1.8, 0.0, 1.0) * magFade; // 提升整體透明度基準
             
             // Base size + strong halo for bright stars
             float zoomScale = focalLen / 500.0;
-            // 稍微?�大?��??��?尺寸，�??��???1080p ?�足夠�?素能亮起 (2.5 -> 3.5)
+            // 稍微放大基礎星星尺寸，讓暗星在 1080p 有足夠像素能亮起 (2.5 -> 3.5)
             float ptSize = max(5.5, baseIntensity * 5.0) * pow(zoomScale, 0.3);
             if (starMag < 3.0) {
-                // 大�?縮�?亮�??��??��??��?實�?大�?
+                // 大幅縮小亮星的光暈佔用的實體大小
                 ptSize += pow(max(0.0, 3.0 - starMag), 1.2) * 1.0 * pow(zoomScale, 0.9); 
             }
             ptSize *= clamp(starVisibility * 2.5, 0.3, 1.2);
@@ -168,7 +168,7 @@ function setupShaders() {
 
         float noise(vec2 p, float t) {
             float phase = hash(p);
-            // fBm-like oscillation (?��??��?)
+            // fBm-like oscillation (降低頻率)
             float n1 = sin(t * (2.5 + phase * 5.0) + phase * 6.28);
             float n2 = sin(t * (5.0 + phase * 7.5) - phase * 3.14) * 0.5;
             return (n1 + n2) / 1.5;
@@ -216,22 +216,22 @@ function setupShaders() {
             finalColor = mix(finalColor, nightColor, desatFactor * 0.6); // Cap maximum desaturation at 60%
             
             // Stellarium-style Point Spread Function (PSF)
-            // 高�??��? (Highlight Core)
+            // 高光核心 (Highlight Core)
             float core = exp(-r * 35.0) * 1.2;
             if (vMag < 2.0) {
-                core += exp(-r * 20.0) * clamp(2.0 - vMag, 0.0, 2.0) * 1.5; // 增強極亮?��??��?
+                core += exp(-r * 20.0) * clamp(2.0 - vMag, 0.0, 2.0) * 1.5; // 增強極亮星的核心
             }
             
-            // ?��??�緣 (Soft Halo) + ?��??��? (Cross Lens Flare)
+            // 柔和邊緣 (Soft Halo) + 十字星芒 (Cross Lens Flare)
             float halo = 0.0;
             float flare = 0.0;
             if (vMag < 3.0) {
-                // ?�次大�??��?亮�??��?範�??�強�?
+                // 再次大幅降低亮星光暈範圍與強度
                 float intensity = pow(clamp(3.0 - vMag, 0.0, 3.0), 1.2);
                 halo = exp(-r * 40.0) * 0.02 * intensity;
                 halo += exp(-r * 25.0) * 0.01 * intensity; 
                 
-                // ?��??��? (Lens Flare)
+                // 十字星芒 (Lens Flare)
                 float crossX = exp(-abs(pt.x) * 120.0) * exp(-abs(pt.y) * 20.0);
                 float crossY = exp(-abs(pt.y) * 120.0) * exp(-abs(pt.x) * 20.0);
                 flare = (crossX + crossY) * 0.03 * intensity;
@@ -544,7 +544,7 @@ window.setupMoon = function () {
             vec3 horiz = eqToHoriz * celestialPos;
             vec3 sunHoriz = eqToHoriz * sunPos;
             
-            // ?��?�?Fragment Shader 計�??�平線�?�?
+            // 傳遞給 Fragment Shader 計算地平線折射
             vAltitude = horiz.z;
             
             vec3 up = vec3(0.0, 0.0, 1.0);
@@ -557,7 +557,7 @@ window.setupMoon = function () {
             }
             vec3 top = normalize(cross(right, horiz));
             
-            // ?�大平面尺寸以容納�??��???(0.06 -> 0.18)
+            // 放大平面尺寸以容納月暈光圈 (0.06 -> 0.18)
             float angularSize = 0.18; 
             vec3 dir = horiz + (c.x * right + c.y * top) * (angularSize / 2.0);
             dir = normalize(dir);
@@ -608,21 +608,21 @@ window.setupMoon = function () {
         
         void main() {
             vec2 c = vUv * 2.0 - 1.0; 
-            // ?��??��??��???0.3333 (?�平?�放大�?3??0.06 -> 0.18)
+            // 月球本體半徑為 0.3333 (因平面放大了3倍 0.06 -> 0.18)
             float moonRadius = 0.3333;
             float r = length(c);
             
-            // 3. 大氣?��?顏色?�移 (Atmospheric Refraction Tint)
+            // 3. 大氣折射顏色偏移 (Atmospheric Refraction Tint)
             float altFactor = clamp(vAltitude * 8.0, 0.0, 1.0);
-            // ?��??�平線�??��?紅�?高仰角�??�白
+            // 接近地平線時偏橙紅，高仰角時偏白
             vec3 atmTint = mix(vec3(1.0, 0.55, 0.3), vec3(1.0, 1.0, 1.0), altFactor);
-            // 低仰角�?稍微變�?
+            // 低仰角時稍微變暗
             float atmAlpha = mix(0.75, 1.0, altFactor);
             
-            // 2. ?��??��? (Lunar Halo)
+            // 2. 月暈光圈 (Lunar Halo)
             float haloDist = clamp((r - moonRadius) / (1.0 - moonRadius), 0.0, 1.0);
             vec3 haloColor = mix(vec3(1.0, 0.6, 0.3), vec3(0.85, 0.95, 1.0), altFactor);
-            // ?�晶徑�?漸層：內?�強，�??��??�淡??
+            // 冰晶徑向漸層：內圈強，外圈柔和淡出
             float haloAlpha = pow(1.0 - haloDist, 2.0) * 0.5 * atmAlpha; 
             
             if (r > moonRadius) {
@@ -630,37 +630,37 @@ window.setupMoon = function () {
                 return;
             }
             
-            // 1. ?�面?�形山�??��? UV ?�曲
+            // 1. 月面環形山紋理與 UV 扭曲
             vec2 moon_c = c / moonRadius;
             float r2 = dot(moon_c, moon_c);
             
-            // 建�? 3D ?�面法�?
+            // 建立 3D 球面法線
             vec3 baseNormal = normalize(vec3(moon_c.x, moon_c.y, sqrt(max(0.0, 1.0 - r2))));
             
-            // 稍微縮�??�樣?��?，強?�避?��??�自帶�?黑色?�鋸齒�?�?(Bypass black anti-aliased padding)
+            // 稍微縮小採樣半徑，強制避開圖片自帶的黑色抗鋸齒邊緣 (Bypass black anti-aliased padding)
             vec2 safe_c = moon_c * 0.92;
             
-            // ?�本??2D ?�影 UV
+            // 原本的 2D 投影 UV
             vec2 flatUv = safe_c * 0.5 + 0.5;
-            // ?�用?�面法�?將平?��? UV ?�曲，產??3D ?��??�緣?�透�???
+            // 利用球面法線將平面的 UV 扭曲，產生 3D 球體邊緣的透視感
             vec2 sphereUv = baseNormal.xy * 0.46 + 0.5; 
-            // 混�??�本??flat UV ?��?�?UV，避?�現?�照?��?�??度�?�?
+            // 混合原本的 flat UV 與球體 UV，避免現有照片邊緣過度拉伸
             vec2 finalUv = mix(flatUv, sphereUv, 0.4);
             
             vec4 texColor = texture2D(map, finalUv);
             
-            // ?��?影�??�實 Alpha，確保�??��??��?黑色?��?
+            // 提取影像真實 Alpha，確保沒有殘留的黑色邊界
             float texTrueAlpha = texColor.a * smoothstep(0.02, 0.08, max(texColor.r, max(texColor.g, texColor.b)));
             
-            // 將�??��??��?轉為微�?線�?�?(Bump mapping)，強?�環形山?�緣?��?體�?
+            // 將紋理的明暗轉為微法線偏移 (Bump mapping)，強化環形山邊緣的立體感
             float bump = (texColor.r - 0.5) * 0.8;
             vec3 vNormal = normalize(baseNormal + vec3(bump, bump, 0.0));
             
-            // 修正 Lambert 漫�?射在?��??�緣?��??�「�??��?Dark rim) ?�象
-            // 將�?線�?微�??�鏡?�方??(0,0,1)，�?滿�??�亮?��??�緣也能?�收?��?足�?�?
+            // 修正 Lambert 漫反射在球體邊緣產生的「暗邊」(Dark rim) 現象
+            // 將法線稍微拉向鏡頭方向 (0,0,1)，讓滿月或亮面的邊緣也能接收到充足光線
             vec3 finalNormal = normalize(mix(vNormal, vec3(0.0, 0.0, 1.0), 0.6));
             
-            // Lambert 漫�?�?+ ?�影?�渡 (Phase Terminator)
+            // Lambert 漫反射 + 陰影過渡 (Phase Terminator)
             float NdotL = dot(finalNormal, vLightDir);
             float diff = smoothstep(-0.05, 0.2, NdotL);
             float ambient = 0.02; 
@@ -668,11 +668,11 @@ window.setupMoon = function () {
             
             vec3 bodyColor = texColor.rgb * lighting * atmTint;
             
-            // ?�鋸齒�??��?�?
+            // 抗鋸齒柔和邊緣
             float edgeSoftness = smoothstep(1.0, 0.92, r2);
             float bodyAlpha = texTrueAlpha * atmAlpha * edgeSoftness;
             
-            // ?��??��??��??��?後�??��?
+            // 疊加月球本體與背後的月暈
             vec3 finalRGB = mix(haloColor * atmTint, bodyColor, bodyAlpha);
             float finalAlpha = max(haloAlpha, bodyAlpha);
             
@@ -794,9 +794,9 @@ window.setupSun = function () {
              
             float core = 1.0 - smoothstep(coreRadius, coreRadius + 0.001, r); 
             
-            // 大�??��??�本?�畫?�人工�??��??�為?�景?�物?�大�?��經�??�常漂亮??Mie ????��?�?
-            // ?��?太�??��??��??�死??
-            float halo = pow(max(0.0, 1.0 - r), 5.0) * 0.05; // ?�次下修?�極微弱
+            // 大氣散射本身畫的人工光暈因為是背景產物，大白天已經非常漂亮的 Mie 散射了，
+            // 這邊太陽光圈不能疊死。
+            float halo = pow(max(0.0, 1.0 - r), 5.0) * 0.05; // 再次下修，極微弱
              
             float rayStrength = max(0.0, 1.0 - abs(vAltitude) * 5.0); 
             float rayPattern = sin(angle * 8.0 - time * 0.1) * 0.5 + 0.5;
@@ -805,15 +805,15 @@ window.setupSun = function () {
             
             float rayFade = pow(max(0.0, 1.0 - r * 1.2), 2.0);
             
-            // 將�??�亮度�??�幾乎只?��?點綴，避?�干?�物?�大�?
-            float rays = rayPattern * rayFade * rayStrength * 0.05; // �?0.25 ?�到 0.05
+            // 將星芒亮度降到幾乎只有點綴，避免干擾物理大氣
+            float rays = rayPattern * rayFade * rayStrength * 0.05; // 從0.25 降到 0.05
              
-            // ?��??��?維�?高亮，�?外�??��??��???
+            // 確保核心維持高亮，且外側有柔和過渡
             vec3 finalColor = mix(haloColor, vec3(1.0, 1.0, 1.0), core); 
             finalColor += haloColor * rays;
             float alpha = min(1.0, core + halo + rays);
             
-            // ?��??�質?��?度�?壓�?一點�?，避?��??�景?��?天空?��?後�???
+            // 把太陽材質透明度再壓低一點點，避免遮擋背景真實天空散射背後的星
             alpha *= 0.6;
              
             // Soft horizon fade out 
