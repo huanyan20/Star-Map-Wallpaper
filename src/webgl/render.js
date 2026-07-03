@@ -212,6 +212,8 @@ function renderWebGL(fState, screenH, labels) {
       if (c.loaded && c.pointsMesh && c.pointsMesh.material) mats.push(c.pointsMesh.material);
     }
   }
+  if (window.mwMaterial) mats.push(window.mwMaterial);
+  if (window.nebulasMaterial) mats.push(window.nebulasMaterial);
   for (const mat of mats) {
     if (!mat || !mat.uniforms) continue;
     mat.uniforms.eqToHoriz.value.copy(m);
