@@ -9,6 +9,7 @@ import './webgl/sky.js';
 import './webgl/grids.js';
 import './webgl/milkyway.js';
 import './webgl/nebulas.js';
+import './webgl/bloom.js';
 import './webgl/render.js';
 import './webgl/init.js';
 import './app.js';

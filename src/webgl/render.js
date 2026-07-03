@@ -212,6 +212,7 @@ function renderWebGL(fState, screenH, labels) {
       if (c.loaded && c.pointsMesh && c.pointsMesh.material) mats.push(c.pointsMesh.material);
     }
   }
+  if (window.mwGlowMaterial) mats.push(window.mwGlowMaterial);
   if (window.mwMaterial) mats.push(window.mwMaterial);
   if (window.nebulaMaterials) mats.push(...window.nebulaMaterials);
   for (const mat of mats) {
@@ -236,7 +237,11 @@ function renderWebGL(fState, screenH, labels) {
 
   if (window.labelLayer) window.labelLayer.update(labels || []);
 
-  window.renderer.render(window.scene, window.camera);
+  if (window.renderBloom) {
+    window.renderBloom(window.renderer, window.scene, window.camera);
+  } else {
+    window.renderer.render(window.scene, window.camera);
+  }
 }
 
 window.renderWebGL = renderWebGL;

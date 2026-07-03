@@ -8,39 +8,41 @@ export function setupMilkyWay(scene) {
   loader.load('assets/mw_particles.bin', (buffer) => {
     const data = new DataView(buffer);
     const numPoints = buffer.byteLength / 16;
-    
+
     const positions = new Float32Array(numPoints * 3);
     const colors = new Float32Array(numPoints * 3);
     const sizes = new Float32Array(numPoints);
-    
+
     let offset = 0;
     for (let i = 0; i < numPoints; i++) {
       positions[i * 3] = data.getFloat32(offset, true);
       positions[i * 3 + 1] = data.getFloat32(offset + 4, true);
       positions[i * 3 + 2] = data.getFloat32(offset + 8, true);
-      
+
       colors[i * 3] = data.getUint8(offset + 12) / 255.0;
       colors[i * 3 + 1] = data.getUint8(offset + 13) / 255.0;
       colors[i * 3 + 2] = data.getUint8(offset + 14) / 255.0;
-      
+
       sizes[i] = data.getUint8(offset + 15) / 255.0;
       offset += 16;
     }
-    
+
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    
+
     const fragmentShader = `
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vPtRatio;  // paddedSize / renderSize — rescales padded UV back
       void main() {
-        // Soft circle particle
-        vec2 xy = gl_PointCoord.xy - vec2(0.5);
-        float ll = length(xy);
-        if (ll > 0.5) discard;
-        float a = (0.5 - ll) * 2.0;
+        // Gaussian falloff — no hard boundary, neighbouring particles blend naturally.
+        // vPtRatio maps the padded gl_PointCoord back to the true mathematical radius
+        // so the Gaussian shape is independent of the anti-flicker padding.
+        vec2 xy = (gl_PointCoord.xy - vec2(0.5)) * vPtRatio;
+        float r2 = dot(xy, xy);
+        float a = exp(-r2 * 8.0); // tune: larger = tighter falloff
         gl_FragColor = vec4(vColor * a, vAlpha * a);
       }
     `;
@@ -59,6 +61,7 @@ export function setupMilkyWay(scene) {
       
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vPtRatio;
       
       void main() {
         vec3 sxsyz = eqToHoriz * position;
@@ -93,11 +96,25 @@ export function setupMilkyWay(scene) {
         float zoomScale = focalLen / 500.0;
         float exactPtSize = (1.0 + size * 1.5) * pow(zoomScale, 0.5) * depthAtten * dpr;
         
-        gl_PointSize = max(1.0, exactPtSize);
+        // Anti-flicker: clamp to at least 1px for the padding calculation.
+        // If we used exactPtSize directly, vPtRatio = paddedSize/exactPtSize could
+        // become 50x for a 0.1px particle — the discard circle would be smaller than
+        // a pixel, causing all rasterised samples to be discarded and the particle
+        // to flicker in and out as the camera pans.
+        // By clamping renderSize to 1.0, vPtRatio stays ≤ paddedSize/1 = 5,
+        // so the center pixel of the padded sprite always passes discard.
+        float renderSize  = max(exactPtSize, 1.0);
+        float paddedSize  = ceil(renderSize) + 4.0;
+        vPtRatio = paddedSize / renderSize;
+        gl_PointSize = max(paddedSize, 1.0);
         
         vColor = color;
         float horizonFade = smoothstep(-0.02, 0.08, sz);
-        vAlpha = starVisibility * horizonFade * 0.25 * depthAtten;
+        // Sub-pixel coverage: a particle smaller than 1px covers only a fraction
+        // of its host pixel. Scale alpha by the area ratio (r²) so sub-pixel
+        // particles dim gracefully instead of popping on/off.
+        float coverage = min(1.0, exactPtSize * exactPtSize);
+        vAlpha = starVisibility * horizonFade * 0.25 * depthAtten * coverage;
       }
       `,
       fragmentShader,
@@ -114,12 +131,12 @@ export function setupMilkyWay(scene) {
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
-    
+
     mwParticles = new THREE.Points(geometry, window.mwMaterial);
     mwParticles.frustumCulled = false;
     scene.add(mwParticles);
     window.mwMesh = mwParticles;
-    
+
     if (window.starsMaterial && window.starsMaterial.uniforms.eqToHoriz) {
       window.mwMaterial.uniforms.eqToHoriz.value.copy(window.starsMaterial.uniforms.eqToHoriz.value);
     }
@@ -130,6 +147,156 @@ export function updateMilkyWayGeometry() {
   // Not needed for particle points
 }
 
-window.setupMilkyWay = setupMilkyWay;
-window.updateMilkyWayGeometry = updateMilkyWayGeometry;
+// ─── Galactic conversion matrix (J2000) ─────────────────────────────────────
+// Same matrix as build_mw_particles.js / build_mw_glow.js so UV sampling is
+// consistent with how the particle positions were generated.
+const EQ_TO_GAL = [
+  [-0.054876, -0.873437, -0.483835],
+  [ 0.494109, -0.444830,  0.746982],
+  [-0.867666, -0.198076,  0.455984],
+];
+const MW_MAX_B_RAD = 55.0 * Math.PI / 180.0; // texture covers ±55° galactic lat
 
+function eqToGalUV(ex, ey, ez) {
+  // Rotate equatorial → galactic Cartesian
+  const gx = EQ_TO_GAL[0][0]*ex + EQ_TO_GAL[0][1]*ey + EQ_TO_GAL[0][2]*ez;
+  const gy = EQ_TO_GAL[1][0]*ex + EQ_TO_GAL[1][1]*ey + EQ_TO_GAL[1][2]*ez;
+  const gz = EQ_TO_GAL[2][0]*ex + EQ_TO_GAL[2][1]*ey + EQ_TO_GAL[2][2]*ez;
+  const l  = Math.atan2(gy, gx);          // galactic longitude −π…π
+  const b  = Math.asin(Math.max(-1, Math.min(1, gz))); // galactic latitude −π/2…π/2
+  const u  = l / (2.0 * Math.PI) + 0.5;  // 0…1
+  const v  = 1.0 - (b + MW_MAX_B_RAD) / (2.0 * MW_MAX_B_RAD); // 0…1 (image Y down)
+  return [ Math.max(0, Math.min(1, u)), Math.max(0, Math.min(1, v)) ];
+}
+
+/**
+ * Adds a continuous glow layer beneath the milkyway particles.
+ * Uses the same billboard/decal projection technique as nebulas.js:
+ * a unit sphere whose UVs are galactic-coordinate-mapped to mw_glow.png,
+ * rendered with AdditiveBlending + luminance-as-alpha at low opacity.
+ */
+export function setupMilkyWayGlow(scene) {
+  // ── Build sphere geometry with galactic UV mapping ─────────────────────────
+  // Resolution: 256×128 = ~32 k tris, small quads (≈1.4°) keep projection error low
+  const sphereGeo = new THREE.SphereGeometry(1, 256, 128);
+
+  // SphereGeometry places north pole at +Y; our equatorial system has north at +Z.
+  // Remap: eq_x = geo_x, eq_y = geo_z, eq_z = geo_y
+  // Then compute galactic UV for each remapped vertex.
+  const posAttr = sphereGeo.attributes.position;
+  const uvAttr  = sphereGeo.attributes.uv;
+  for (let i = 0; i < posAttr.count; i++) {
+    const gx = posAttr.getX(i); // geo X  = equatorial X
+    const gy = posAttr.getY(i); // geo Y  = equatorial Z (north pole)
+    const gz = posAttr.getZ(i); // geo Z  = equatorial Y
+    // Rewrite position as equatorial Cartesian (Z-up north pole)
+    posAttr.setXYZ(i, gx, gz, gy);
+    // Compute UV from galactic coordinates of this equatorial direction
+    const [u, v] = eqToGalUV(gx, gz, gy);
+    uvAttr.setXY(i, u, v);
+  }
+  posAttr.needsUpdate = true;
+  uvAttr.needsUpdate  = true;
+
+  // ── Shaders — identical to nebulas.js ────────────────────────────────────
+  const vertexShader = `
+    uniform mat3 eqToHoriz;
+    uniform float lookAz;
+    uniform float lookEl;
+    uniform float focalLen;
+
+    varying vec2  vUv;
+    varying float vHorizonFade;
+
+    void main() {
+      vUv = uv;
+      // position is already in equatorial Cartesian (set above in JS)
+      vec3 sxsyz = eqToHoriz * position;
+
+      float sx = sxsyz.x;
+      float sy = sxsyz.y;
+      float sz = sxsyz.z;
+
+      float lx = sin(lookAz) * cos(lookEl);
+      float ly = cos(lookAz) * cos(lookEl);
+      float lz = sin(lookEl);
+
+      float rx = cos(lookAz);
+      float ry = -sin(lookAz);
+
+      float ux = ry * lz;
+      float uy = -rx * lz;
+      float uz = cos(lookEl);
+
+      float depth = sx*lx + sy*ly + sz*lz;
+      float pr    = sx*rx + sy*ry;
+      float pu    = sx*ux + sy*uy + sz*uz;
+
+      float safeDepth = max(depth, -0.999);
+      float k  = 2.0 / (1.0 + safeDepth);
+      float px = pr * k * focalLen;
+      float py = pu * k * focalLen;
+
+      // viewMatrix only — same fix as nebulas.js (modelMatrix is identity here
+      // anyway since the sphere sits at the origin, but be explicit).
+      gl_Position = projectionMatrix * viewMatrix * vec4(px, py, 0.0, 1.0);
+
+      float depthAtten = smoothstep(-0.4, 0.0, depth);
+      vHorizonFade = smoothstep(-0.02, 0.08, sz) * depthAtten;
+    }
+  `;
+
+  const fragmentShader = `
+    uniform sampler2D tDiffuse;
+    uniform float     starVisibility;
+    varying vec2      vUv;
+    varying float     vHorizonFade;
+
+    void main() {
+      vec4  texColor = texture2D(tDiffuse, vUv);
+      // Luminance-as-alpha: black regions are transparent without needing a
+      // real alpha channel (same technique as nebulas.js).
+      float lum   = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
+      // 0.12 keeps the glow layer subtle — particles provide the detail on top
+      float alpha = lum * vHorizonFade * starVisibility * 0.12;
+      gl_FragColor = vec4(texColor.rgb * alpha, alpha);
+    }
+  `;
+
+  const texture = new THREE.TextureLoader().load('assets/mw_glow.png');
+
+  window.mwGlowMaterial = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader,
+    uniforms: {
+      tDiffuse:       { value: texture },
+      eqToHoriz:      { value: new THREE.Matrix3() },
+      starVisibility: { value: 1.0 },
+      lookAz:         { value: 0 },
+      lookEl:         { value: 0 },
+      focalLen:       { value: 500 },
+      time:           { value: 0 },
+      dpr:            { value: 1.0 },
+    },
+    transparent: true,
+    depthWrite:  false,
+    blending:    THREE.AdditiveBlending,
+    side:        THREE.BackSide, // render inside of sphere
+  });
+
+  // Seed eqToHoriz from stars material if already available
+  if (window.starsMaterial && window.starsMaterial.uniforms.eqToHoriz) {
+    window.mwGlowMaterial.uniforms.eqToHoriz.value.copy(
+      window.starsMaterial.uniforms.eqToHoriz.value
+    );
+  }
+
+  const glowMesh = new THREE.Mesh(sphereGeo, window.mwGlowMaterial);
+  glowMesh.frustumCulled = false;
+  scene.add(glowMesh);
+  window.mwGlowMesh = glowMesh;
+}
+
+window.setupMilkyWay          = setupMilkyWay;
+window.setupMilkyWayGlow      = setupMilkyWayGlow;
+window.updateMilkyWayGeometry = updateMilkyWayGeometry;

@@ -92,8 +92,13 @@ async function build() {
       buffer.writeUInt8(g, offset + 13);
       buffer.writeUInt8(bl, offset + 14);
       
-      // Random size variation based on intensity
-      const size = Math.floor(Math.random() * 255 * (0.5 + 0.5 * luminance));
+      // Size directly tied to luminance with only ±10% random jitter.
+      // Old formula: random(0,255) * (0.5+0.5*lum) → mostly random, lum only
+      // raised the ceiling → random "star-like" speckle instead of smooth gradient.
+      // New formula: lum drives the base, jitter adds organic variation without
+      // breaking the luminance gradient.
+      const jitter = 0.9 + Math.random() * 0.2; // uniform [0.9, 1.1]
+      const size = Math.min(255, Math.floor(luminance * 255 * jitter));
       buffer.writeUInt8(size, offset + 15);
       
       count++;

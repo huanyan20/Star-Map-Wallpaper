@@ -22,12 +22,15 @@ async function initWebGL() {
   window.renderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true, alpha: true });
   window.renderer.setSize(window.innerWidth, window.innerHeight);
   window.renderer.setPixelRatio(window.devicePixelRatio || 1);
+  // Bloom pipeline — must come right after renderer so RTs match its output size
+  if (window.setupBloom) window.setupBloom(window.innerWidth, window.innerHeight);
 
   window.renderer.toneMapping = THREE.ACESFilmicToneMapping;
   window.renderer.toneMappingExposure = 1.0;
 
   window.addEventListener('resize', () => {
     window.renderer.setSize(window.innerWidth, window.innerHeight);
+    if (window.resizeBloom) window.resizeBloom(window.innerWidth, window.innerHeight);
     window.camera.left = -window.innerWidth / 2;
     window.camera.right = window.innerWidth / 2;
     window.camera.top = window.innerHeight / 2;
@@ -61,6 +64,7 @@ async function initWebGL() {
   if (window.setupOcean) window.setupOcean();
   if (window.setupSun) window.setupSun();
   if (window.setupMoon) window.setupMoon();
+  if (window.setupMilkyWayGlow) window.setupMilkyWayGlow(window.scene);
   if (window.setupMilkyWay) window.setupMilkyWay(window.scene);
   if (window.setupNebulas) window.setupNebulas(window.scene);
 

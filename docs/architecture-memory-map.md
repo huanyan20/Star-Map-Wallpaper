@@ -1,6 +1,6 @@
 # STAR Architecture Memory Map
 
-Last updated: 2026-07-03 (Milestone v1.0 — Milky Way Pipeline Complete)
+Last updated: 2026-07-03 (Milestone v1.1 — Nebula DSO Decals Active)
 
 ## Main Architecture
 STAR is a WebGL-based lively wallpaper application built with Three.js and Vite. It utilizes raw astronomical data (Tycho-2 catalog) to render an accurate, interactive night sky.
@@ -9,13 +9,14 @@ STAR is a WebGL-based lively wallpaper application built with Three.js and Vite.
 - **Application Entry**: `src/app.js` initializes the scene and handles user interactions. Time is currently fixed at 21:00 local for development/testing.
 - **WebGL Subsystem**: Handles all rendering logic.
   - `src/webgl/init.js`: Sets up the renderer, camera, scene, and base shaders. Calls all `setup*` hooks including `setupMilkyWay` and `setupNebulas`.
-  - `src/webgl/render.js`: Manages the main render loop, camera positioning, and time updates. Propagates uniforms (`eqToHoriz`, `lookAz`, `lookEl`, `focalLen`, `starVisibility`, `dpr`) to all materials: stars, star chunks, milkyway, and nebula materials.
+  - `src/webgl/render.js`: Manages the main render loop, camera positioning, and time updates. Propagates uniforms to all materials. **Render output goes through `renderBloom()` (5-pass bloom pipeline) instead of a bare `renderer.render()` call.**
+  - `src/webgl/bloom.js`: 5-pass post-processing bloom pipeline. Pass 1: full scene → HALF_FLOAT rtScene. Pass 2: luminance threshold → rtBright (½ res). Pass 3-4: separable 9-tap Gaussian blur (H then V) → rtBlurB. Pass 5: additive composite (scene + bloom) → screen. Tunable via `window.bloomCfg.{enabled, threshold, strength}`.
   - `src/webgl/sky.js` & shaders (`skyFragment`, `skyVertex`): Renders the procedural, physically-based sky and atmospheric scattering.
   - `src/webgl/ocean.js` & shaders: Renders the ocean with realistic wave normals and lighting.
   - `src/webgl/stars.js` & `src/webgl/labels.js`: Manages the massive star catalog buffer and constellation labels.
   - `src/webgl/milkyway.js`: Particle-based Milky Way (300k points). Loads `assets/mw_particles.bin`. Exposes `window.setupMilkyWay`, `window.mwMaterial`, `window.mwMesh`.
   - `src/webgl/nebulas.js`: Texture-decal nebula overlays. Loads config from `assets/nebulas.json` (optional, gracefully absent). Exposes `window.setupNebulas`, `window.nebulaMaterials` (array).
-- **Module Load Order** (`src/main.js`): bootstrap → vendor → globals → stars → labels → ocean → sky → grids → milkyway → nebulas → render → init → app
+- **Module Load Order** (`src/main.js`): bootstrap → vendor → globals → stars → labels → ocean → sky → grids → milkyway → nebulas → **bloom** → render → init → app
 - **Data Processing**:
   - `scripts/build_assets.js`: Generates MSDF fonts.
   - `scripts/build_tycho2.js`: Compiles the raw Tycho-2 catalog into an optimized binary format.
@@ -33,6 +34,7 @@ The `codebase-memory-mcp` knowledge graph is actively maintained. To reduce nois
 - **Stereographic projection** is used in all star/milkyway/nebula vertex shaders (not Three.js camera matrix) for correct panoramic rendering.
 - **Additive blending** is used for milkyway particles and nebula decals.
 - All "sky-space" materials share the same uniform set: `eqToHoriz` (equatorial-to-horizontal rotation matrix), `lookAz`, `lookEl`, `focalLen`, `starVisibility`, `dpr`.
+- **Nebula alpha**: Fragment shader derives alpha from **luminance** (`dot(rgb, vec3(0.299,0.587,0.114))`) instead of texture alpha channel. This lets black-background PNG textures work correctly with additive blending without requiring a dedicated alpha channel.
 - `window.toggles.milkyway` drives `window.mwMesh.visible` each frame.
 
 ## Milestone Status: v1.0 — Milky Way Pipeline Complete
@@ -43,11 +45,11 @@ The `codebase-memory-mcp` knowledge graph is actively maintained. To reduce nois
 - ✅ Ocean with animated wave normals
 - ✅ Constellation lines, equatorial/alt-az grids, ecliptic
 - ✅ Milky Way particle system (300k pts) — fully wired into render pipeline
-- ✅ Nebula texture-decal system — optional, gracefully absent
+- ✅ Nebula texture-decal system — **active** with 6 Messier DSOs (M31, M42, M45, M13, M8, M20). Textures in `assets/nebulas/`, config in `assets/nebulas.json`.
 - ✅ Smoke test passing (build + puppeteer headless)
 - 🔲 Bundle code-split (main JS ~953 kB minified, candidate for dynamic import)
 - 🔲 Time unlock from fixed 21:00 (dev mode convenience)
-- 🔲 `nebulas.json` config creation and nebula textures
+- ✅ `nebulas.json` config and nebula textures — complete (M31 M42 M45 M13 M8 M20)
 
 ## Remaining Complex Hotspots
 While the codebase has been significantly cleaned up and refactored, the following modules remain large or computationally dense and are candidates for future optimization or refactoring:
