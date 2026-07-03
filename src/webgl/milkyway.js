@@ -129,3 +129,7 @@ export function setupMilkyWay(scene) {
 export function updateMilkyWayGeometry() {
   // Not needed for particle points
 }
+
+window.setupMilkyWay = setupMilkyWay;
+window.updateMilkyWayGeometry = updateMilkyWayGeometry;
+

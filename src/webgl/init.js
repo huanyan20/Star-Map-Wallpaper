@@ -61,6 +61,8 @@ async function initWebGL() {
   if (window.setupOcean) window.setupOcean();
   if (window.setupSun) window.setupSun();
   if (window.setupMoon) window.setupMoon();
+  if (window.setupMilkyWay) window.setupMilkyWay(window.scene);
+  if (window.setupNebulas) window.setupNebulas(window.scene);
 
   window.skyMaterial = new THREE.ShaderMaterial({
     vertexShader: skyVertexShader,

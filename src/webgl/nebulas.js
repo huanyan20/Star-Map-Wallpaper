@@ -132,3 +132,5 @@ export function setupNebulas(scene) {
       console.log('Nebula decal system inactive (no config found).');
     });
 }
+
+window.setupNebulas = setupNebulas;

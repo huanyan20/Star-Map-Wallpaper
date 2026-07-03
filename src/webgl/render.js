@@ -213,7 +213,7 @@ function renderWebGL(fState, screenH, labels) {
     }
   }
   if (window.mwMaterial) mats.push(window.mwMaterial);
-  if (window.nebulasMaterial) mats.push(window.nebulasMaterial);
+  if (window.nebulaMaterials) mats.push(...window.nebulaMaterials);
   for (const mat of mats) {
     if (!mat || !mat.uniforms) continue;
     mat.uniforms.eqToHoriz.value.copy(m);
