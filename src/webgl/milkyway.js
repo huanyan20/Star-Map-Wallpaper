@@ -119,7 +119,7 @@ export function setupMilkyWay(scene) {
         float cityFactor = dot(viewAz, cityDir) * 0.5 + 0.5;
         cityFactor = smoothstep(0.1, 0.9, cityFactor);
         float horizonFade = smoothstep(-0.02, 0.08, sz) * depthAtten;
-        float directionalFade = mix(0.4, 1.0, cityFactor);
+        float directionalFade = mix(1.0, 0.4, cityFactor);
         // Sub-pixel coverage: a particle smaller than 1px covers only a fraction
         // of its host pixel. Scale alpha by the area ratio (r²) so sub-pixel
         // particles dim gracefully instead of popping on/off.
@@ -297,7 +297,7 @@ export function setupMilkyWayGlow(scene) {
       vec2 viewAz = normalize(vec2(sx, sy) + vec2(1e-4, 1e-4));
       float cityFactor = dot(viewAz, cityDir) * 0.5 + 0.5;
       cityFactor = smoothstep(0.1, 0.9, cityFactor);
-      float directionalFade = mix(0.45, 1.0, cityFactor);
+      float directionalFade = mix(1.0, 0.4, cityFactor);
       vHorizonFade = smoothstep(-0.02, 0.08, sz) * depthAtten * directionalFade;
       vGlowTint = mix(vec3(0.42, 0.52, 0.95), vec3(1.0, 0.55, 0.22), cityFactor);
     }

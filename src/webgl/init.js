@@ -1,28 +1,24 @@
 import * as THREE from 'three';
 import skyFragmentShader from '../shaders/skyFragment.frag.glsl';
 import skyVertexShader from '../shaders/skyVertex.vert.glsl';
+import { generateBlueNoiseField } from './blueNoise.js';
 
-function createBlueNoiseTexture(size = 64) {
+function createBlueNoiseTexture(size = 256) {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   const imageData = ctx.createImageData(size, size);
   const data = imageData.data;
-  const fract = (value) => value - Math.floor(value);
+  const field = generateBlueNoiseField(size);
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const u = x / size;
-      const v = y / size;
-      const n1 = fract(Math.sin(u * 127.1 + v * 311.7) * 43758.5453);
-      const n2 = fract(Math.sin((u + 0.25) * 269.5 + (v + 0.17) * 183.3) * 31543.927);
-      const value = (n1 * 0.7 + n2 * 0.3);
       const idx = (y * size + x) * 4;
-      const byte = Math.floor(value * 255);
-      data[idx] = byte;
-      data[idx + 1] = byte;
-      data[idx + 2] = byte;
+      const value = Math.floor(field[y * size + x] * 255);
+      data[idx] = value;
+      data[idx + 1] = value;
+      data[idx + 2] = value;
       data[idx + 3] = 255;
     }
   }
@@ -125,7 +121,7 @@ async function initWebGL() {
       atmosphereBlend: { value: 1.0 },
       dpr: { value: window.devicePixelRatio || 1.0 },
       uBlueNoise: { value: blueNoiseTexture },
-      uBlueNoiseSize: { value: 64.0 },
+      uBlueNoiseSize: { value: 256.0 },
     },
     depthWrite: false,
     transparent: true,
