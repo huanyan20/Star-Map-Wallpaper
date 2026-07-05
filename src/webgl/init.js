@@ -2,6 +2,40 @@ import * as THREE from 'three';
 import skyFragmentShader from '../shaders/skyFragment.frag.glsl';
 import skyVertexShader from '../shaders/skyVertex.vert.glsl';
 
+function createBlueNoiseTexture(size = 64) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.createImageData(size, size);
+  const data = imageData.data;
+  const fract = (value) => value - Math.floor(value);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      const n1 = fract(Math.sin(u * 127.1 + v * 311.7) * 43758.5453);
+      const n2 = fract(Math.sin((u + 0.25) * 269.5 + (v + 0.17) * 183.3) * 31543.927);
+      const value = (n1 * 0.7 + n2 * 0.3);
+      const idx = (y * size + x) * 4;
+      const byte = Math.floor(value * 255);
+      data[idx] = byte;
+      data[idx + 1] = byte;
+      data[idx + 2] = byte;
+      data[idx + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
 async function initWebGL() {
   const [starCatalog, labelFont] = await Promise.all([window.loadStarCatalog(), window.loadLabelFont()]);
   const webglCanvas = document.createElement('canvas');
@@ -68,6 +102,8 @@ async function initWebGL() {
   if (window.setupMilkyWay) window.setupMilkyWay(window.scene);
   if (window.setupNebulas) window.setupNebulas(window.scene);
 
+  const blueNoiseTexture = createBlueNoiseTexture();
+
   window.skyMaterial = new THREE.ShaderMaterial({
     vertexShader: skyVertexShader,
     fragmentShader: skyFragmentShader,
@@ -88,6 +124,8 @@ async function initWebGL() {
       turbidity: { value: 1.5 },
       atmosphereBlend: { value: 1.0 },
       dpr: { value: window.devicePixelRatio || 1.0 },
+      uBlueNoise: { value: blueNoiseTexture },
+      uBlueNoiseSize: { value: 64.0 },
     },
     depthWrite: false,
     transparent: true,

@@ -37,6 +37,7 @@ export function setupMilkyWay(scene) {
       varying vec3 vColor;
       varying float vAlpha;
       varying float vPtRatio;  // paddedSize / renderSize — rescales padded UV back
+      varying vec3 vGlowTint;
       void main() {
         // Gaussian falloff — no hard boundary, neighbouring particles blend naturally.
         // vPtRatio maps the padded gl_PointCoord back to the true mathematical radius
@@ -45,7 +46,8 @@ export function setupMilkyWay(scene) {
         float r2 = dot(xy, xy);
         float a = exp(-r2 * 8.0); // tune: larger = tighter falloff
         vec3 mutedColor = mix(vColor, vec3(dot(vColor, vec3(0.299, 0.587, 0.114))), 0.35);
-        gl_FragColor = vec4(mutedColor * a, vAlpha * a);
+        vec3 tintedColor = mutedColor * vGlowTint;
+        gl_FragColor = vec4(tintedColor * a, vAlpha * a);
       }
     `;
 
@@ -64,6 +66,7 @@ export function setupMilkyWay(scene) {
       varying vec3 vColor;
       varying float vAlpha;
       varying float vPtRatio;
+      varying vec3 vGlowTint;
       
       void main() {
         vec3 sxsyz = eqToHoriz * position;
@@ -111,12 +114,18 @@ export function setupMilkyWay(scene) {
         gl_PointSize = max(paddedSize, 1.0);
         
         vColor = color;
-        float horizonFade = smoothstep(-0.02, 0.08, sz);
+        vec2 cityDir = normalize(vec2(0.866, 0.5));
+        vec2 viewAz = normalize(vec2(sx, sy) + vec2(1e-4, 1e-4));
+        float cityFactor = dot(viewAz, cityDir) * 0.5 + 0.5;
+        cityFactor = smoothstep(0.1, 0.9, cityFactor);
+        float horizonFade = smoothstep(-0.02, 0.08, sz) * depthAtten;
+        float directionalFade = mix(0.4, 1.0, cityFactor);
         // Sub-pixel coverage: a particle smaller than 1px covers only a fraction
         // of its host pixel. Scale alpha by the area ratio (r²) so sub-pixel
         // particles dim gracefully instead of popping on/off.
         float coverage = min(1.0, exactPtSize * exactPtSize);
-        vAlpha = starVisibility * horizonFade * 0.25 * depthAtten * coverage;
+        vAlpha = starVisibility * horizonFade * directionalFade * 0.25 * coverage;
+        vGlowTint = mix(vec3(0.42, 0.52, 0.95), vec3(1.0, 0.55, 0.22), cityFactor);
       }
       `,
       fragmentShader,
@@ -248,6 +257,7 @@ export function setupMilkyWayGlow(scene) {
 
     varying vec2  vUv;
     varying float vHorizonFade;
+    varying vec3  vGlowTint;
 
     void main() {
       vUv = uv;
@@ -283,7 +293,13 @@ export function setupMilkyWayGlow(scene) {
       gl_Position = projectionMatrix * viewMatrix * vec4(px, py, 0.0, 1.0);
 
       float depthAtten = smoothstep(-0.4, 0.0, depth);
-      vHorizonFade = smoothstep(-0.02, 0.08, sz) * depthAtten;
+      vec2 cityDir = normalize(vec2(0.866, 0.5));
+      vec2 viewAz = normalize(vec2(sx, sy) + vec2(1e-4, 1e-4));
+      float cityFactor = dot(viewAz, cityDir) * 0.5 + 0.5;
+      cityFactor = smoothstep(0.1, 0.9, cityFactor);
+      float directionalFade = mix(0.45, 1.0, cityFactor);
+      vHorizonFade = smoothstep(-0.02, 0.08, sz) * depthAtten * directionalFade;
+      vGlowTint = mix(vec3(0.42, 0.52, 0.95), vec3(1.0, 0.55, 0.22), cityFactor);
     }
   `;
 
@@ -292,6 +308,7 @@ export function setupMilkyWayGlow(scene) {
     uniform float     starVisibility;
     varying vec2      vUv;
     varying float     vHorizonFade;
+    varying vec3      vGlowTint;
 
     void main() {
       vec4  texColor = texture2D(tDiffuse, vUv);
@@ -300,7 +317,8 @@ export function setupMilkyWayGlow(scene) {
       float lum   = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
       // 0.12 keeps the glow layer subtle — particles provide the detail on top
       float alpha = lum * vHorizonFade * starVisibility * 0.12;
-      gl_FragColor = vec4(texColor.rgb * alpha, alpha);
+      vec3 tintedColor = texColor.rgb * vGlowTint;
+      gl_FragColor = vec4(tintedColor * alpha, alpha);
     }
   `;
 

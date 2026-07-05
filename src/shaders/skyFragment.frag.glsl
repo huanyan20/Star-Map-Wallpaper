@@ -13,6 +13,8 @@ uniform vec3 topRGB;
         uniform float focalLen;
         uniform float atmosphereBlend;
         uniform float dpr;
+        uniform sampler2D uBlueNoise;
+        uniform float uBlueNoiseSize;
 
         // ------------------
         // Procedural Skyline
@@ -291,7 +293,10 @@ uniform vec3 topRGB;
                 finalColor = blendedOcean * 0.15 + vec3(0.001, 0.002, 0.005);
             }
             
-            // Keep the atmosphere smooth: the ray-march dither is enough to break
-            // banding, and an extra final-color noise pass would otherwise look like texture.
+            float noiseSample = texture2D(uBlueNoise, (gl_FragCoord.xy / dpr) / uBlueNoiseSize).r;
+            float horizonDitherWeight = smoothstep(-0.02, 0.06, sz) * atmosphereBlend;
+            float ditherStrength = mix(0.0, 0.0022, horizonDitherWeight);
+            finalColor += (noiseSample - 0.5) * ditherStrength;
+
             gl_FragColor = vec4(finalColor, 1.0);
         }
