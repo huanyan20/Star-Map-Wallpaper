@@ -10,7 +10,7 @@
     "build:tycho2": "node scripts/build_tycho2.js",
     "format": "prettier --write \"**/*.{js,json,html,css}\"",
     "test:smoke": "npm run build && node scripts/smoke-test.js",
-    "test:unit": "node --test scripts/test_math.js scripts/test_grids.js scripts/test_stars.js"
+    "test:unit": "node --test scripts/test_math.js scripts/test_grids.js scripts/test_stars.js scripts/test_additive_sky.js"
   },
   "devDependencies": {
     "http-server": "^14.1.1",

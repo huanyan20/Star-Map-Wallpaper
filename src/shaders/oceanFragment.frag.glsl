@@ -373,8 +373,8 @@ uniform vec3 topRGB;
             
             // 移除早期強制將近處(相反方向)壓暗的程式碼，
             // 讓前面設定的深邃海水色與物理光影 (Diffuse) 得以完整呈現，不再被強行蓋過變成死黑。
-            // 套用 ACES 色調映射，讓高光更自然，提升對比
-            waterColor = ACESFilm(waterColor);
+            // Tone-mapping moved to composite pass (bloom.js).
+            // waterColor stays in linear HDR here.
             
             // 利用 Fresnel (R) 決定物理透明度 (透底效應)
             // 如果透明度降得太低 (例如之前的 0.1)，會導致海面上所有的光影、反射都被稀釋到看不見 (導致海浪隱形)

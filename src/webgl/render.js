@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LAT_RAD } from '../vendor/astronomy_engine.js';
+import { syncAdditiveSkyMaterials } from './additiveSkyMaterial.js';
 
 function updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnabled) {
   if (window.skyMaterial && topRGB && midRGB && horRGB) {
@@ -206,26 +207,15 @@ function renderWebGL(fState, screenH, labels) {
     sinL,
   );
 
-  const mats = [window.starsMaterial];
-  if (window.STAR_CHUNKS) {
-    for (const c of window.STAR_CHUNKS) {
-      if (c.loaded && c.pointsMesh && c.pointsMesh.material) mats.push(c.pointsMesh.material);
-    }
-  }
-  if (window.mwGlowMaterial) mats.push(window.mwGlowMaterial);
-  if (window.mwMaterial) mats.push(window.mwMaterial);
-  if (window.nebulaMaterials) mats.push(...window.nebulaMaterials);
-  for (const mat of mats) {
-    if (!mat || !mat.uniforms) continue;
-    mat.uniforms.eqToHoriz.value.copy(m);
-    mat.uniforms.lookAz.value = window.lookAz;
-    mat.uniforms.lookEl.value = window.lookEl;
-    mat.uniforms.focalLen.value = window.focalLen();
-    mat.uniforms.time.value = ts / 1000.0;
-    mat.uniforms.starVisibility.value =
-      typeof starVisibility !== 'undefined' ? starVisibility : 1.0;
-    mat.uniforms.dpr.value = window.devicePixelRatio || 1.0;
-  }
+  syncAdditiveSkyMaterials({
+    eqToHoriz: m,
+    lookAz: window.lookAz,
+    lookEl: window.lookEl,
+    focalLen: window.focalLen(),
+    time: ts / 1000.0,
+    starVisibility: typeof starVisibility !== 'undefined' ? starVisibility : 1.0,
+    dpr: window.devicePixelRatio || 1.0,
+  });
 
   updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnabled);
   

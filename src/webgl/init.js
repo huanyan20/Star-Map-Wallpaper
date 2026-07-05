@@ -25,8 +25,8 @@ async function initWebGL() {
   // Bloom pipeline — must come right after renderer so RTs match its output size
   if (window.setupBloom) window.setupBloom(window.innerWidth, window.innerHeight);
 
-  window.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  window.renderer.toneMappingExposure = 1.0;
+  window.renderer.toneMapping = THREE.NoToneMapping;
+  window.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   window.addEventListener('resize', () => {
     window.renderer.setSize(window.innerWidth, window.innerHeight);

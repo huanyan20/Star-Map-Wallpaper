@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { registerAdditiveSkyMaterial } from './additiveSkyMaterial.js';
 
 let mwParticles = null;
 
@@ -43,7 +44,8 @@ export function setupMilkyWay(scene) {
         vec2 xy = (gl_PointCoord.xy - vec2(0.5)) * vPtRatio;
         float r2 = dot(xy, xy);
         float a = exp(-r2 * 8.0); // tune: larger = tighter falloff
-        gl_FragColor = vec4(vColor * a, vAlpha * a);
+        vec3 mutedColor = mix(vColor, vec3(dot(vColor, vec3(0.299, 0.587, 0.114))), 0.35);
+        gl_FragColor = vec4(mutedColor * a, vAlpha * a);
       }
     `;
 
@@ -133,6 +135,7 @@ export function setupMilkyWay(scene) {
     });
 
     mwParticles = new THREE.Points(geometry, window.mwMaterial);
+    registerAdditiveSkyMaterial(window.mwMaterial);
     mwParticles.frustumCulled = false;
     scene.add(mwParticles);
     window.mwMesh = mwParticles;
@@ -185,18 +188,56 @@ export function setupMilkyWayGlow(scene) {
   // Then compute galactic UV for each remapped vertex.
   const posAttr = sphereGeo.attributes.position;
   const uvAttr  = sphereGeo.attributes.uv;
+  const basePositions = [];
+  const baseUvs = [];
   for (let i = 0; i < posAttr.count; i++) {
     const gx = posAttr.getX(i); // geo X  = equatorial X
     const gy = posAttr.getY(i); // geo Y  = equatorial Z (north pole)
     const gz = posAttr.getZ(i); // geo Z  = equatorial Y
-    // Rewrite position as equatorial Cartesian (Z-up north pole)
-    posAttr.setXYZ(i, gx, gz, gy);
-    // Compute UV from galactic coordinates of this equatorial direction
+    basePositions.push(gx, gz, gy);
     const [u, v] = eqToGalUV(gx, gz, gy);
-    uvAttr.setXY(i, u, v);
+    baseUvs.push(u, v);
   }
-  posAttr.needsUpdate = true;
-  uvAttr.needsUpdate  = true;
+
+  // Split UV seams per triangle so the longitude wraparound stays continuous.
+  // The original sphere geometry duplicates seam vertices, but those duplicates
+  // were overwritten with a single UV value; we need separate vertex entries for
+  // each triangle corner after the seam is remapped.
+  const seamGeo = new THREE.BufferGeometry();
+  const seamPositions = [];
+  const seamUvs = [];
+  const seamIndices = [];
+  const indexAttr = sphereGeo.index ? sphereGeo.index.array : null;
+  const triCount = indexAttr ? indexAttr.length / 3 : posAttr.count / 3;
+
+  const pushVertex = (vertexIndex, u, v) => {
+    const baseOffset = vertexIndex * 3;
+    seamPositions.push(basePositions[baseOffset], basePositions[baseOffset + 1], basePositions[baseOffset + 2]);
+    seamUvs.push(u, v);
+    return seamPositions.length / 3 - 1;
+  };
+
+  for (let i = 0; i < triCount; i++) {
+    const a = indexAttr ? indexAttr[i * 3] : i * 3;
+    const b = indexAttr ? indexAttr[i * 3 + 1] : i * 3 + 1;
+    const c = indexAttr ? indexAttr[i * 3 + 2] : i * 3 + 2;
+
+    const baseU = baseUvs[a * 2];
+    const v0 = baseUvs[a * 2 + 1];
+    const u1 = baseUvs[b * 2] + Math.round(baseU - baseUvs[b * 2]);
+    const v1 = baseUvs[b * 2 + 1];
+    const u2 = baseUvs[c * 2] + Math.round(baseU - baseUvs[c * 2]);
+    const v2 = baseUvs[c * 2 + 1];
+
+    seamIndices.push(pushVertex(a, baseU, v0));
+    seamIndices.push(pushVertex(b, u1, v1));
+    seamIndices.push(pushVertex(c, u2, v2));
+  }
+
+  seamGeo.setAttribute('position', new THREE.Float32BufferAttribute(seamPositions, 3));
+  seamGeo.setAttribute('uv', new THREE.Float32BufferAttribute(seamUvs, 2));
+  seamGeo.setIndex(seamIndices);
+  seamGeo.computeVertexNormals();
 
   // ── Shaders — identical to nebulas.js ────────────────────────────────────
   const vertexShader = `
@@ -291,7 +332,8 @@ export function setupMilkyWayGlow(scene) {
     );
   }
 
-  const glowMesh = new THREE.Mesh(sphereGeo, window.mwGlowMaterial);
+  const glowMesh = new THREE.Mesh(seamGeo, window.mwGlowMaterial);
+  registerAdditiveSkyMaterial(window.mwGlowMaterial);
   glowMesh.frustumCulled = false;
   scene.add(glowMesh);
   window.mwGlowMesh = glowMesh;

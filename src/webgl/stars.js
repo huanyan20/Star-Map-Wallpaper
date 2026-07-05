@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { registerAdditiveSkyMaterial } from './additiveSkyMaterial.js';
+
 async function loadStarCatalog() {
   fetchChunksMeta();
   if (window.starCatalogPromise) return window.starCatalogPromise;
@@ -157,6 +159,7 @@ window.updateStarLOD = function (hFOV) {
             const mat = window.starsMaterial.clone();
             mat.uniforms = THREE.UniformsUtils.clone(window.starsMaterial.uniforms);
             mat.uniforms.chunkMaxFov.value = chunk.maxFov;
+            registerAdditiveSkyMaterial(mat);
             chunk.pointsMesh = new THREE.Points(geo, mat);
             chunk.pointsMesh.renderOrder = window.fieldStarsMesh ? window.fieldStarsMesh.renderOrder : 0;
             window.scene.add(chunk.pointsMesh);

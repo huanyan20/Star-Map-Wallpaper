@@ -35,8 +35,8 @@ let matComposite = null;
 // ── Public config (tune via window.bloomCfg) ────────────────────────────────
 window.bloomCfg = {
   enabled:   true,
-  threshold: 0.25,   // luminance threshold; 0 = everything blooms, 1 = nothing
-  strength:  1.4,    // additive bloom brightness multiplier
+  threshold: 0.45,   // luminance threshold; 0 = everything blooms, 1 = nothing
+  strength:  0.75,   // additive bloom brightness multiplier
 };
 
 // ── Internal helpers ────────────────────────────────────────────────────────
@@ -104,8 +104,8 @@ export function setupBloom(width, height) {
         // Perceptual luminance
         float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
         // Smooth ramp above threshold so there's no hard jump
-        float extract = smoothstep(uThreshold, uThreshold + 0.15, lum);
-        gl_FragColor = vec4(c * extract, 1.0);
+        float extract = smoothstep(uThreshold, uThreshold + 0.10, lum);
+        gl_FragColor = vec4(c * extract * 0.75, 1.0);
       }
     `,
     depthTest: false, depthWrite: false,
@@ -163,12 +163,28 @@ export function setupBloom(width, height) {
       uniform sampler2D tBloom;
       uniform float uStrength;
       varying vec2 vUv;
+
+      vec3 ACESFilm(vec3 x) {
+        float a = 2.51;
+        float b = 0.03;
+        float c = 2.43;
+        float d = 0.59;
+        float e = 0.14;
+        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+      }
+
+      vec3 linearToSRGB(vec3 c) {
+        vec3 lo = c * 12.92;
+        vec3 hi = 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055;
+        return mix(lo, hi, step(0.0031308, c));
+      }
+
       void main() {
         vec3 scene = texture2D(tScene, vUv).rgb;
         vec3 bloom = texture2D(tBloom, vUv).rgb;
-        // Additive composite: bloom glow adds on top without dimming the scene.
-        // Tone-mapping is applied by the renderer after this pass.
-        gl_FragColor = vec4(scene + bloom * uStrength, 1.0);
+        vec3 hdr = scene + bloom * uStrength;
+        vec3 ldr = ACESFilm(hdr * 0.88);
+        gl_FragColor = vec4(linearToSRGB(ldr), 1.0);
       }
     `,
     depthTest: false, depthWrite: false,

@@ -961,7 +961,7 @@ function render(ts) {
     lastFPSTime = ts;
   }
   const now = new Date();
-  now.setHours(21, 0, 0, 0);
+  // now.setHours(21, 0, 0, 0);
   
   // 1. Generate single frame state
   const fState = getFrameState(ts, now);

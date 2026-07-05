@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { registerAdditiveSkyMaterial } from './additiveSkyMaterial.js';
+
 function updateSkyGeometry() {
   if (!window.skyMesh || (window.skyW === window.innerWidth && window.skyH === window.innerHeight)) return;
   window.skyW = window.innerWidth;
@@ -276,6 +278,7 @@ function setupShaders() {
     premultipliedAlpha: true,
     blending: THREE.AdditiveBlending,
   });
+  registerAdditiveSkyMaterial(window.starsMaterial);
 
   const gridVertexShader = /* glsl */ `
         uniform mat3 eqToHoriz;

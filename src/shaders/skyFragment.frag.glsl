@@ -74,12 +74,6 @@ uniform vec3 topRGB;
             return result;
         }
 
-        // Interleaved Gradient Noise for raymarching (better spectrum than static hash to hide integration steps)
-        float interleavedGradientNoise(vec2 p) {
-            vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
-            return fract(magic.z * fract(dot(p, magic.xy)));
-        }
-
         // Simple noise with mod() to protect against precision loss on high resolution screens
         float hash(vec2 p) {
             p = mod(p, 512.0);
@@ -89,7 +83,7 @@ uniform vec3 topRGB;
         // ------------------
         // Physical Atmosphere
         // ------------------
-        vec3 getAtmosphere(vec3 r, vec3 sunDir, float turb, float ditherVal) {
+        vec3 getAtmosphere(vec3 r, vec3 sunDir, float turb) {
             float earthRadius = 6360e3;
             float atmRadius = 6420e3;
             vec3 p0 = vec3(0.0, 0.0, earthRadius + 10.0);
@@ -110,9 +104,11 @@ uniform vec3 topRGB;
                 if (tEarth > 0.0) t = min(t, tEarth);
             }
             
-            float stepSize = t / 32.0;
-            // Dither the ray march start position to break up integration blocks into noise
-            float timeProg = stepSize * ditherVal;
+            // Use a fixed, high sample count for the whole atmosphere so the
+            // horizon stays smooth without introducing concentric layers.
+            float sampleCountF = 96.0;
+            int sampleCount = int(sampleCountF);
+            float stepSize = t / max(sampleCountF, 1.0);
             
             vec3 rayleigh = vec3(0.0);
             vec3 mie = vec3(0.0);
@@ -126,8 +122,11 @@ uniform vec3 topRGB;
             float Hr = 8000.0;
             float Hm = 1200.0;
             
-            for(int i = 0; i < 32; i++) {
-                vec3 p = p0 + r * (timeProg + stepSize * 0.5);
+            for(int i = 0; i < 160; i++) {
+                if (i >= sampleCount) break;
+                float sampleIndex = float(i) + 0.5;
+                float sampleT = stepSize * sampleIndex;
+                vec3 p = p0 + r * sampleT;
                 float height = length(p) - earthRadius;
                 if (height < 0.0) break;
                 
@@ -144,11 +143,11 @@ uniform vec3 topRGB;
                 // Check if sun is blocked by Earth (Soft shadow / Penumbra to prevent geometric banding)
                 float sunZenithRad = acos(clamp(cosZenith, -1.0, 1.0));
                 float horizonAngle = 1.5707963 + acos(clamp(earthRadius / pLen, 0.0, 1.0));
-                // Soft shadow over ~1.5 degrees (0.026 rad) penumbra
-                float earthShadow = smoothstep(horizonAngle + 0.026, horizonAngle - 0.026, sunZenithRad);
+                // Use a broader, softer shadow transition to avoid any flickering edge feel.
+                float earthShadow = smoothstep(horizonAngle + 0.045, horizonAngle - 0.045, sunZenithRad);
                 
                 float sunZenithAngle = sunZenithRad * 57.29578;
-                float chR = 1.0 / (max(0.0, cosZenith) + 0.15 * pow(max(0.001, 93.885 - sunZenithAngle), -1.253));
+                float chR = 1.0 / (max(0.0, cosZenith) + 0.18 * pow(max(0.001, 93.885 - sunZenithAngle), -1.253));
                 float sunOptDepthR = exp(-height / Hr) * Hr * chR;
                 float sunOptDepthM = exp(-height / Hm) * Hm * chR;
                 
@@ -160,26 +159,24 @@ uniform vec3 topRGB;
                 
                 rayleigh += hr * attenuation;
                 mie += hm * attenuation;
-                timeProg += stepSize;
             }
             
             float cosTheta = dot(r, sunDir);
-            float phaseR = 3.0 / (16.0 * 3.14159) * (1.0 + cosTheta * cosTheta);
+            float phaseR = 1.0 + 0.5 * cosTheta * cosTheta;
             
-            // 微調 g 值 (0.76 -> 0.79)，讓光暈更集中，縮小太陽大氣散射的範圍，同時保持一定的柔和度
-            float g = 0.79; 
-            float phaseM = 3.0 / (8.0 * 3.14159) * ((1.0 - g * g) * (1.0 + cosTheta * cosTheta)) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * cosTheta, 1.5));
+            // Pull the atmosphere response back toward the original sky color scale.
+            // The sky should be driven mainly by the existing gradient colors,
+            // with the physical atmosphere only adding a subtle tint.
+            float g = 0.35;
+            float phaseM = 0.6 + 0.15 * cosTheta;
+            phaseM = phaseM * (1.0 - 0.2 * g);
             
-            // 大幅降低 Mie 散射的整體強度 (0.12 -> 0.04)，解決散射過大的問題
-            phaseM = phaseM * 0.04; 
-            
-            // 稍微調降整體的亮度乘數，使整片天空暗下來
-            vec3 scatter = 8.0 * (rayleigh * betaR * phaseR + mie * betaM * phaseM);
+            vec3 scatter = 1.4 * (rayleigh * betaR * phaseR + mie * betaM * phaseM);
             
             // Nighttime ambient from stars/moon
             float nightAmbient = max(0.0, -sunDir.z * 0.5) * 0.005;
             
-            return scatter + vec3(0.01, 0.015, 0.02) * nightAmbient;
+            return scatter * 0.55 + vec3(0.003, 0.0045, 0.008) * nightAmbient;
         }
 
         void main() {
@@ -216,11 +213,10 @@ uniform vec3 topRGB;
                 // Physical atmosphere scattering
                 vec3 sunVec = normalize(sunPosition);
                 
-                float ditherVal = interleavedGradientNoise(gl_FragCoord.xy);
-                vec3 physColor = getAtmosphere(viewDir, sunVec, turbidity, ditherVal);
+                vec3 physColor = getAtmosphere(viewDir, sunVec, turbidity);
                 
-                // Expose and tone map
-                physColor = 1.0 - exp(-physColor * 1.5);
+                // Exposure scale only — tone-mapping moved to composite pass (bloom.js)
+                physColor = physColor * 1.15;
                 
                 // Add moonlight scattering if moon is the dominant light source (simple approximation)
                 if (lightIntensity > 0.0 && dot(lightDir, sunPosition) < 0.9) {
@@ -229,11 +225,16 @@ uniform vec3 topRGB;
                     physColor += moonColor;
                 }
                 
-                // Simple gradient fallback for night/no-atmosphere
-                vec3 nightGrad = mix(midRGB, topRGB, smoothstep(0.0, 0.5, sz));
-                nightGrad = mix(horRGB, nightGrad, smoothstep(-0.015, 0.1, sz));
+                // Keep the sky base color anchored to the original gradient tones.
+                vec3 baseGrad = mix(midRGB, topRGB, smoothstep(0.0, 0.5, sz));
+                baseGrad = mix(horRGB, baseGrad, smoothstep(-0.015, 0.1, sz));
                 
-                vec3 color = mix(nightGrad, physColor, atmosphereBlend);
+                vec3 color = mix(baseGrad, physColor, atmosphereBlend * 0.18);
+                
+                // Push the overall sky toward a cooler, less green tone while
+                // keeping the gradient-based base color dominant.
+                vec3 skyTint = mix(vec3(1.00, 0.88, 0.84), vec3(0.82, 0.90, 1.04), smoothstep(-0.02, 0.35, sz));
+                color *= skyTint;
                 
                 // ------------------
                 // Local Light Pollution (Kaohsiung Skyglow - Bortle 8/9)
@@ -280,9 +281,9 @@ uniform vec3 topRGB;
                 // Ocean Base Background
                 // Keep the same ocean logic to blend nicely with the physical sky
                 vec3 sunVec = normalize(sunPosition);
-                float ditherVal = interleavedGradientNoise(gl_FragCoord.xy);
-                vec3 physOcean = getAtmosphere(normalize(vec3(vx, vy, 0.0)), sunVec, turbidity, ditherVal);
-                physOcean = 1.0 - exp(-physOcean * 1.5);
+                vec3 physOcean = getAtmosphere(normalize(vec3(vx, vy, 0.0)), sunVec, turbidity);
+                // Exposure scale only — tone-mapping moved to composite pass (bloom.js)
+                physOcean = physOcean * 1.5;
                 
                 vec3 nightOcean = horRGB * 0.2; // Darker version of horizon color for sea base
                 vec3 blendedOcean = mix(nightOcean, physOcean, atmosphereBlend);
@@ -290,13 +291,7 @@ uniform vec3 topRGB;
                 finalColor = blendedOcean * 0.15 + vec3(0.001, 0.002, 0.005);
             }
             
-            // Static, subtle screen-space dither to eliminate banding without causing noticeable grain
-            vec3 dither = vec3(
-                hash(gl_FragCoord.xy),
-                hash(gl_FragCoord.xy + vec2(12.3, 45.6)),
-                hash(gl_FragCoord.xy + vec2(78.9, 12.3))
-            ) - 0.5;
-            finalColor += dither * 0.004; 
-            
+            // Keep the atmosphere smooth: the ray-march dither is enough to break
+            // banding, and an extra final-color noise pass would otherwise look like texture.
             gl_FragColor = vec4(finalColor, 1.0);
         }

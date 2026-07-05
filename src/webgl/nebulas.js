@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { registerAdditiveSkyMaterial } from './additiveSkyMaterial.js';
 
 let nebulasGroup = null;
 
@@ -112,6 +113,7 @@ export function setupNebulas(scene) {
           blending: THREE.AdditiveBlending
         });
 
+        registerAdditiveSkyMaterial(material);
         window.nebulaMaterials.push(material);
 
         if (window.starsMaterial && window.starsMaterial.uniforms.eqToHoriz) {

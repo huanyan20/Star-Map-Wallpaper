@@ -2,6 +2,7 @@ import './bootstrap.js';
 import './vendor/astronomy.browser.js';
 import './vendor/astronomy_engine.js';
 import './webgl/globals.js';
+import './webgl/additiveSkyMaterial.js';
 import './webgl/stars.js';
 import './webgl/labels.js';
 import './webgl/ocean.js';
