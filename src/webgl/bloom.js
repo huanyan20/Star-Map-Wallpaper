@@ -34,7 +34,7 @@ let matComposite = null;
 
 // ── Public config (tune via window.bloomCfg) ────────────────────────────────
 window.bloomCfg = {
-  enabled:   true,
+  enabled:   false,
   threshold: 0.45,   // luminance threshold; 0 = everything blooms, 1 = nothing
   strength:  0.75,   // additive bloom brightness multiplier
 };

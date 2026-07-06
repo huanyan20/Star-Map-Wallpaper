@@ -9,34 +9,20 @@ uniform vec3 topRGB;
         uniform vec3 lightDir;
         uniform float lightIntensity;
         uniform vec3 lightColor;
+        uniform sampler2D skylineTex;
         
         // ------------------
         // Procedural Skyline
         // ------------------
-        float distU(float u, float center) {
-            float d = abs(u - center);
-            return d > 0.5 ? 1.0 - d : d;
-        }
-        
         vec4 getProceduralSkyline(float rawU, float sz) {
             vec4 result = vec4(0.0);
-            float mountAlt = 0.0;
-            mountAlt += (sin(rawU * 3.14159265 * 24.0) * 0.5 + 0.5) * 0.015;
-            mountAlt += (sin(rawU * 3.14159265 * 70.0) * 0.5 + 0.5) * 0.008;
             
-            float shoushan = exp(-pow(distU(rawU, 0.45) * 40.0, 2.0)) * 0.04;
-            mountAlt += shoushan;
-
-            float uDist85 = distU(rawU, 0.52);
-            float tower85 = exp(-pow(uDist85 * 1000.0, 2.0)) * 0.06;
-            float towerBase = exp(-pow(uDist85 * 300.0, 2.0)) * 0.03;
-            
-            float b1 = sin(rawU * 3.14159265 * 300.0);
-            float b2 = sin(rawU * 3.14159265 * 100.0);
-            float buildings = (b1 * 0.5 + 0.5) * 0.015;
-            buildings *= (b2 * 0.5 + 0.5);
-            
-            float finalAlt = max(mountAlt, max(buildings, max(tower85, towerBase)));
+            // Sample baked texture
+            vec4 texData = texture2D(skylineTex, vec2(rawU, 0.5));
+            float finalAlt = texData.r * 0.1;
+            float isDensity = texData.g;
+            float shoushanAlt = texData.b * 0.1;
+            float uDist85 = texData.a * 0.1;
             
             float aaAlpha = smoothstep(finalAlt + 0.0015, finalAlt - 0.0015, sz);
             if (sz < 0.0) aaAlpha = 0.0;
@@ -49,7 +35,7 @@ uniform vec3 topRGB;
                 
                 float lightProb = fract(sin(dot(grid, vec2(12.9898, 78.233))) * 43758.5453);
                 float density = smoothstep(0.03, 0.0, sz);
-                if (buildings > 0.005 || uDist85 < 0.01) density *= 2.0;
+                if (isDensity > 0.5) density *= 2.0;
                 
                 if (lightProb > (1.0 - 0.015 * density)) {
                     float cHash = fract(sin(dot(grid, vec2(39.346, 11.135))) * 43758.5453);
@@ -63,7 +49,7 @@ uniform vec3 topRGB;
                     float blink = step(0.5, sin(time * 2.0));
                     color = vec3(1.0, 0.2, 0.2) * 1.8 * blink;
                 }
-                if (mountAlt == shoushan && sz > mountAlt - 0.005) {
+                if (shoushanAlt > 0.001 && sz > shoushanAlt - 0.005) {
                     float blink = step(0.5, sin(time * 3.0));
                     color += vec3(1.0, 0.2, 0.2) * 1.5 * blink;
                 }
@@ -137,10 +123,10 @@ uniform vec3 topRGB;
             // 取各類衰減中最嚴重的一個 (值越大代表越需要簡化)
             float iterFactor = max(distIter, max(angleIter, troughIter));
             
-            // 近處/大角度/波峰(8層)，遠處/平視/波谷(1層)
-            float maxIter = mix(8.0, 1.0, iterFactor);
+            // 近處/大角度/波峰(3層)，遠處/平視/波谷(1層)
+            float maxIter = mix(3.0, 1.0, iterFactor);
             
-            for (int i = 0; i < 8; i++) { // 固定迴圈次數以符合 WebGL 限制
+            for (int i = 0; i < 3; i++) { // 固定迴圈次數以符合 WebGL 限制
                 float iterWeight = clamp(maxIter - float(i), 0.0, 1.0);
                 
                 p = rot * p;

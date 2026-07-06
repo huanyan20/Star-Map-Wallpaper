@@ -97,8 +97,8 @@ let lastFrameT = 0;
 let lastRenderT = 0;
 let rafId = null;
 
-const TARGET_FPS = 30;
-const FRAME_MS = 1000 / TARGET_FPS;
+// const TARGET_FPS = 30;
+// const FRAME_MS = 1000 / TARGET_FPS;
 
 function scheduleRender() {
   if (rafId === null && !document.hidden) {
@@ -121,10 +121,10 @@ function render(ts) {
   rafId = null;
   if (document.hidden) return;
 
-  if (ts - lastRenderT < FRAME_MS) {
-    scheduleRender();
-    return;
-  }
+  // if (ts - lastRenderT < FRAME_MS) {
+  //   scheduleRender();
+  //   return;
+  // }
   
   const dt = lastFrameT === 0 ? 0 : (ts - lastFrameT) / 1000;
   lastFrameT = ts;
