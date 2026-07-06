@@ -42,6 +42,7 @@ export function initUI() {
     grid: false,
     equatorial: false,
     ecliptic: false,
+    bloom: false,
   };
   function bindToggle(id, key) {
     const el = document.getElementById(id);
@@ -49,6 +50,9 @@ export function initUI() {
     el.addEventListener('click', () => {
       window.toggles[key] = !window.toggles[key];
       el.classList.toggle('active');
+      if (key === 'bloom' && window.bloomCfg) {
+        window.bloomCfg.enabled = window.toggles.bloom;
+      }
     });
   }
   bindToggle('btn-atmosphere', 'atmosphere');
@@ -59,6 +63,7 @@ export function initUI() {
   bindToggle('btn-grid', 'grid');
   bindToggle('btn-equatorial', 'equatorial');
   bindToggle('btn-ecliptic', 'ecliptic');
+  bindToggle('btn-bloom', 'bloom');
   
   const resetBtn = document.getElementById('btn-reset');
   if (resetBtn) {
@@ -72,11 +77,13 @@ export function initUI() {
   const keyMap = {
     t: 'atmosphere', c: 'constellations', n: 'conNames',
     s: 'starNames', m: 'milkyway', g: 'grid', e: 'equatorial',
+    b: 'bloom',
   };
   const btnMap = {
     atmosphere: 'btn-atmosphere', constellations: 'btn-constellations',
     conNames: 'btn-con-names', starNames: 'btn-star-names',
     milkyway: 'btn-milkyway', grid: 'btn-grid', equatorial: 'btn-equatorial',
+    bloom: 'btn-bloom',
   };
   window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -86,6 +93,9 @@ export function initUI() {
       window.toggles[key] = !window.toggles[key];
       const btn = document.getElementById(btnMap[key]);
       if (btn) btn.classList.toggle('active', window.toggles[key]);
+      if (key === 'bloom' && window.bloomCfg) {
+        window.bloomCfg.enabled = window.toggles.bloom;
+      }
     } else if (k === 'r') {
       state.lookAz = Math.PI;
       state.lookEl = toRad(25);

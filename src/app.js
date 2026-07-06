@@ -100,8 +100,10 @@ let rafId = null;
 // const TARGET_FPS = 30;
 // const FRAME_MS = 1000 / TARGET_FPS;
 
+let isLivelyPaused = false;
+
 function scheduleRender() {
-  if (rafId === null && !document.hidden) {
+  if (rafId === null && !document.hidden && !isLivelyPaused) {
     rafId = requestAnimationFrame(render);
   }
 }
@@ -117,9 +119,21 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+window.livelyWallpaperPlaybackChanged = function(isPaused) {
+  isLivelyPaused = isPaused;
+  if (isPaused) {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+  } else {
+    scheduleRender();
+  }
+};
+
 function render(ts) {
   rafId = null;
-  if (document.hidden) return;
+  if (document.hidden || isLivelyPaused) return;
 
   // if (ts - lastRenderT < FRAME_MS) {
   //   scheduleRender();

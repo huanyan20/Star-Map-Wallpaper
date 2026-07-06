@@ -25,3 +25,7 @@
 - **架構解耦驗證**：確認 `src/app.js` 已經成功拆分出 `render2D.js`、`entities.js` 與 `frameState.js`，達成初步渲染與邏輯分離。
 - **文件歸檔**：建立 `docs/archive/`，並將已完成的階段性目標 (`repo-cleanup-plan.md`, `quality-plan.md`, `refactor-plan.md`) 移入，保持根目錄清爽。
 - **效能優化藍圖**：統整先前的技術討論，建立 `docs/performance-plan.md`，為後續的 GPU 渲染管線優化、LOD 微調及桌布引擎整合（Lively/Wallpaper Engine）定下明確方向。
+
+## 6. UI 與 Lively 休眠機制實作 (最新)
+- **Bloom UI 控制**：於 `index.html` 及 `UIManager.js` 中新增了「✨ 泛光效果」按鈕與快捷鍵 `B`，完美對接了已實作在 `bloom.js` 的 5-pass 泛光管線。
+- **Lively 休眠支援**：在 `app.js` 加入 `window.livelyWallpaperPlaybackChanged` 事件。現在當 Lively 桌布進入背景或有其他全螢幕遊戲時，將主動暫停 `requestAnimationFrame`，達成 0% 渲染耗能。
