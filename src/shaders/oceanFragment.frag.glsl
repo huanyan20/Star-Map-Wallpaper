@@ -355,7 +355,7 @@ uniform vec3 topRGB;
                 
                 // 波光粼粼的閃爍雜訊 (在波浪尖端產生微小晶瑩亮點)
                 float glintNoise = hash(floor(vWorldPos.xy * 100.0) + time * 3.0); 
-                specular *= (0.5 + glintNoise * 2.0); // 稍微提升閃爍晶瑩感
+                specular *= (0.3 + glintNoise * 0.4); // 整體降低閃爍晶瑩感
                 
                 // 計算視線與光源方位的夾角遮罩，強制切除因為海浪法線過度扭曲而往左右兩側亂噴的光斑
                 // 稍微放寬至 40 次方，以免光芒過窄顯得不自然

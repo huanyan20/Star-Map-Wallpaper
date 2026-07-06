@@ -196,7 +196,7 @@ function setupShaders() {
             
             // Chromatic Scintillation (Twinkling)
             // Higher airmass = more scintillation. Bright stars show more color shifts.
-            float twinkleAmp = min(0.45, 0.05 + 0.04 * vAirMass); 
+            float twinkleAmp = min(0.2, 0.02 + 0.02 * vAirMass); // 整體降低閃爍幅度
             float tNoise1 = noise(vPosHash, time);
             float tNoise2 = noise(vPosHash + vec2(1.0), time * 1.1); // Slightly offset for color
             float twinkle = 1.0 + twinkleAmp * tNoise1;
