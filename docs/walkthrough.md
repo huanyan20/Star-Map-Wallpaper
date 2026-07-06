@@ -20,3 +20,8 @@
 
 > [!TIP]
 > 專案警示與雜訊已清空，現階段狀態十分乾淨，適合直接進行後續的大型模組拆分或效能優化！
+
+## 5. 專案文件歸檔與效能最佳化藍圖 (最新)
+- **架構解耦驗證**：確認 `src/app.js` 已經成功拆分出 `render2D.js`、`entities.js` 與 `frameState.js`，達成初步渲染與邏輯分離。
+- **文件歸檔**：建立 `docs/archive/`，並將已完成的階段性目標 (`repo-cleanup-plan.md`, `quality-plan.md`, `refactor-plan.md`) 移入，保持根目錄清爽。
+- **效能優化藍圖**：統整先前的技術討論，建立 `docs/performance-plan.md`，為後續的 GPU 渲染管線優化、LOD 微調及桌布引擎整合（Lively/Wallpaper Engine）定下明確方向。

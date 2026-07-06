@@ -6,7 +6,7 @@ Last updated: 2026-07-03 (Milestone v1.1 — Nebula DSO Decals Active)
 STAR is a WebGL-based lively wallpaper application built with Three.js and Vite. It utilizes raw astronomical data (Tycho-2 catalog) to render an accurate, interactive night sky.
 
 ### Core Components
-- **Application Entry**: `src/app.js` initializes the scene and handles user interactions. Time is currently fixed at 21:00 local for development/testing.
+- **Application Entry**: `src/app.js` initializes the scene and handles the main rendering loop scheduling, but has been significantly decoupled. State calculations are extracted to `src/core/frameState.js`, while 2D rendering and entity logic are delegated to `src/render/render2D.js` and `src/render/entities.js`.
 - **WebGL Subsystem**: Handles all rendering logic.
   - `src/webgl/init.js`: Sets up the renderer, camera, scene, and base shaders. Calls all `setup*` hooks including `setupMilkyWay` and `setupNebulas`.
   - `src/webgl/render.js`: Manages the main render loop, camera positioning, and time updates. Propagates uniforms to all materials. **Render output goes through `renderBloom()` (5-pass bloom pipeline) instead of a bare `renderer.render()` call.**
@@ -56,13 +56,13 @@ While the codebase has been significantly cleaned up and refactored, the followi
 - `src/webgl/sky.js`
 - `src/webgl/render.js`
 - `src/webgl/stars.js`
-- `src/app.js`
+
+(Note: `src/app.js` has been successfully refactored and is no longer a massive hotspot.)
 
 ## Documentation Index
 - `docs/architecture-memory-map.md` — this file
+- `docs/performance-plan.md` — performance optimization and WebGL LOD/GPU offloading plan
 - `docs/assets.md` — asset pipeline explanation
 - `docs/walkthrough.md` — feature walkthrough
-- `docs/quality-plan.md` — quality maintenance plan (moved from root)
-- `docs/refactor-plan.md` — mid-size module refactor roadmap (moved from root)
 - `docs/twilight-artifacts.md` — twilight visual artifact notes
-- `docs/repo-cleanup-plan.md` — repository cleanup history
+- `docs/archive/` — Contains completed plans (`quality-plan.md`, `refactor-plan.md`, `repo-cleanup-plan.md`)
