@@ -208,45 +208,51 @@ export function setupMilkyWayGlow(scene) {
     baseUvs.push(u, v);
   }
 
-  // Split UV seams per triangle so the longitude wraparound stays continuous.
-  // The original sphere geometry duplicates seam vertices, but those duplicates
-  // were overwritten with a single UV value; we need separate vertex entries for
-  // each triangle corner after the seam is remapped.
-  const seamGeo = new THREE.BufferGeometry();
-  const seamPositions = [];
-  const seamUvs = [];
+  // Proper Seam Splitting: Keep original vertices, duplicate only those that wrap
+  const seamPositions = [...basePositions];
+  const seamUvs = [...baseUvs];
   const seamIndices = [];
+  
   const indexAttr = sphereGeo.index ? sphereGeo.index.array : null;
   const triCount = indexAttr ? indexAttr.length / 3 : posAttr.count / 3;
-
-  const pushVertex = (vertexIndex, u, v) => {
-    const baseOffset = vertexIndex * 3;
-    seamPositions.push(basePositions[baseOffset], basePositions[baseOffset + 1], basePositions[baseOffset + 2]);
-    seamUvs.push(u, v);
-    return seamPositions.length / 3 - 1;
-  };
 
   for (let i = 0; i < triCount; i++) {
     const a = indexAttr ? indexAttr[i * 3] : i * 3;
     const b = indexAttr ? indexAttr[i * 3 + 1] : i * 3 + 1;
     const c = indexAttr ? indexAttr[i * 3 + 2] : i * 3 + 2;
 
-    const baseU = baseUvs[a * 2];
-    const v0 = baseUvs[a * 2 + 1];
-    const u1 = baseUvs[b * 2] + Math.round(baseU - baseUvs[b * 2]);
-    const v1 = baseUvs[b * 2 + 1];
-    const u2 = baseUvs[c * 2] + Math.round(baseU - baseUvs[c * 2]);
-    const v2 = baseUvs[c * 2 + 1];
+    const uA = seamUvs[a * 2];
+    const uB = seamUvs[b * 2];
+    const uC = seamUvs[c * 2];
 
-    seamIndices.push(pushVertex(a, baseU, v0));
-    seamIndices.push(pushVertex(b, u1, v1));
-    seamIndices.push(pushVertex(c, u2, v2));
+    // Check if triangle crosses the seam
+    const maxU = Math.max(uA, uB, uC);
+    const minU = Math.min(uA, uB, uC);
+
+    if (maxU - minU > 0.5) {
+      // Triangle crosses the seam. We need to shift the vertices with small U to U+1
+      // We do this by creating a new duplicated vertex.
+      const processVertex = (idx, u, v) => {
+        if (u < 0.5) {
+          seamPositions.push(basePositions[idx * 3], basePositions[idx * 3 + 1], basePositions[idx * 3 + 2]);
+          seamUvs.push(u + 1.0, v);
+          return seamPositions.length / 3 - 1;
+        }
+        return idx;
+      };
+
+      seamIndices.push(processVertex(a, uA, seamUvs[a * 2 + 1]));
+      seamIndices.push(processVertex(b, uB, seamUvs[b * 2 + 1]));
+      seamIndices.push(processVertex(c, uC, seamUvs[c * 2 + 1]));
+    } else {
+      seamIndices.push(a, b, c);
+    }
   }
 
+  const seamGeo = new THREE.BufferGeometry();
   seamGeo.setAttribute('position', new THREE.Float32BufferAttribute(seamPositions, 3));
   seamGeo.setAttribute('uv', new THREE.Float32BufferAttribute(seamUvs, 2));
   seamGeo.setIndex(seamIndices);
-  seamGeo.computeVertexNormals();
 
   // ── Shaders — identical to nebulas.js ────────────────────────────────────
   const vertexShader = `
@@ -323,6 +329,7 @@ export function setupMilkyWayGlow(scene) {
   `;
 
   const texture = new THREE.TextureLoader().load('assets/mw_glow.png');
+  texture.wrapS = THREE.RepeatWrapping;
 
   window.mwGlowMaterial = new THREE.ShaderMaterial({
     vertexShader,

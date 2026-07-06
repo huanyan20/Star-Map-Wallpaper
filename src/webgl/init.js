@@ -1,36 +1,6 @@
 import * as THREE from 'three';
 import skyFragmentShader from '../shaders/skyFragment.frag.glsl';
 import skyVertexShader from '../shaders/skyVertex.vert.glsl';
-import { generateBlueNoiseField } from './blueNoise.js';
-
-function createBlueNoiseTexture(size = 256) {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const imageData = ctx.createImageData(size, size);
-  const data = imageData.data;
-  const field = generateBlueNoiseField(size);
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const idx = (y * size + x) * 4;
-      const value = Math.floor(field[y * size + x] * 255);
-      data[idx] = value;
-      data[idx + 1] = value;
-      data[idx + 2] = value;
-      data[idx + 3] = 255;
-    }
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.minFilter = THREE.NearestFilter;
-  texture.magFilter = THREE.NearestFilter;
-  texture.generateMipmaps = false;
-  return texture;
-}
 
 async function initWebGL() {
   const [starCatalog, labelFont] = await Promise.all([window.loadStarCatalog(), window.loadLabelFont()]);
@@ -51,7 +21,7 @@ async function initWebGL() {
 
   window.renderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true, alpha: true });
   window.renderer.setSize(window.innerWidth, window.innerHeight);
-  window.renderer.setPixelRatio(window.devicePixelRatio || 1);
+  window.renderer.setPixelRatio(window.RENDER_DPR || Math.min(window.devicePixelRatio || 1, 1.5));
   // Bloom pipeline — must come right after renderer so RTs match its output size
   if (window.setupBloom) window.setupBloom(window.innerWidth, window.innerHeight);
 
@@ -60,6 +30,7 @@ async function initWebGL() {
 
   window.addEventListener('resize', () => {
     window.renderer.setSize(window.innerWidth, window.innerHeight);
+    window.renderer.setPixelRatio(window.RENDER_DPR || Math.min(window.devicePixelRatio || 1, 1.5));
     if (window.resizeBloom) window.resizeBloom(window.innerWidth, window.innerHeight);
     window.camera.left = -window.innerWidth / 2;
     window.camera.right = window.innerWidth / 2;
@@ -98,8 +69,6 @@ async function initWebGL() {
   if (window.setupMilkyWay) window.setupMilkyWay(window.scene);
   if (window.setupNebulas) window.setupNebulas(window.scene);
 
-  const blueNoiseTexture = createBlueNoiseTexture();
-
   window.skyMaterial = new THREE.ShaderMaterial({
     vertexShader: skyVertexShader,
     fragmentShader: skyFragmentShader,
@@ -120,8 +89,6 @@ async function initWebGL() {
       turbidity: { value: 1.5 },
       atmosphereBlend: { value: 1.0 },
       dpr: { value: window.devicePixelRatio || 1.0 },
-      uBlueNoise: { value: blueNoiseTexture },
-      uBlueNoiseSize: { value: 256.0 },
     },
     depthWrite: false,
     transparent: true,

@@ -14,32 +14,22 @@ function updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnable
     window.skyMaterial.uniforms.lookEl.value = window.lookEl;
     window.skyMaterial.uniforms.focalLen.value = window.focalLen();
     if (window.skyMaterial.uniforms.dpr) {
-      window.skyMaterial.uniforms.dpr.value = window.devicePixelRatio || 1.0;
+      window.skyMaterial.uniforms.dpr.value = window.RENDER_DPR || Math.min(window.devicePixelRatio || 1.0, 1.5);
     }
-    
-    if (typeof window.skyMaterial.uniforms.atmosphereBlend === 'undefined') {
-        window.skyMaterial.uniforms.atmosphereBlend = { value: 1.0 };
-    }
-    const targetBlend = atmosphereEnabled ? 1.0 : 0.0;
-    window.skyMaterial.uniforms.atmosphereBlend.value += (targetBlend - window.skyMaterial.uniforms.atmosphereBlend.value) * 0.1;
-    
-    if (window.updateSkyGeometry) window.updateSkyGeometry();
   }
 }
 
-function updateSunMoonUniforms(sunCoords, moonCoords, m, ts, atmosphereEnabled) {
+function updateSunMoonUniforms(sunEqPos, moonEqPos, m, ts, atmosphereEnabled) {
   let currentLightDir = new THREE.Vector3(0, 0, 1);
   let currentLightIntensity = 0.0;
   let lightColor = new THREE.Vector3(0.8, 0.9, 1.0);
   let physicalSunPos = new THREE.Vector3(0, 0, -1);
 
-  if (sunCoords) {
-    const sDec = (sunCoords.dec * Math.PI) / 180;
-    const sRa = (sunCoords.ra * 15 * Math.PI) / 180;
+  if (sunEqPos) {
     const sunPos = new THREE.Vector3(
-      Math.cos(sDec) * Math.cos(sRa),
-      Math.cos(sDec) * Math.sin(sRa),
-      Math.sin(sDec),
+      sunEqPos.x,
+      sunEqPos.y,
+      sunEqPos.z
     );
     const celestialPos = sunPos.clone();
     
@@ -71,13 +61,11 @@ function updateSunMoonUniforms(sunCoords, moonCoords, m, ts, atmosphereEnabled) 
     }
   }
 
-  if (currentLightIntensity < 0.5 && moonCoords) {
-    const mDec = (moonCoords.dec * Math.PI) / 180;
-    const mRa = (moonCoords.ra * 15 * Math.PI) / 180;
+  if (currentLightIntensity < 0.5 && moonEqPos) {
     const moonPos = new THREE.Vector3(
-      Math.cos(mDec) * Math.cos(mRa),
-      Math.cos(mDec) * Math.sin(mRa),
-      Math.sin(mDec),
+      moonEqPos.x,
+      moonEqPos.y,
+      moonEqPos.z
     );
     const celestialPos = moonPos.clone();
     moonPos.applyMatrix3(m);
@@ -93,13 +81,11 @@ function updateSunMoonUniforms(sunCoords, moonCoords, m, ts, atmosphereEnabled) 
 
     if (window.moonMesh) {
       window.moonMaterial.uniforms.celestialPos.value.copy(celestialPos);
-      if (sunCoords) {
-        const sDec = (sunCoords.dec * Math.PI) / 180;
-        const sRa = (sunCoords.ra * 15 * Math.PI) / 180;
+      if (sunEqPos) {
         window.moonMaterial.uniforms.sunPos.value.set(
-          Math.cos(sDec) * Math.cos(sRa),
-          Math.cos(sDec) * Math.sin(sRa),
-          Math.sin(sDec),
+          sunEqPos.x,
+          sunEqPos.y,
+          sunEqPos.z
         );
       }
       window.moonMaterial.uniforms.eqToHoriz.value.copy(m);
@@ -181,13 +167,11 @@ function renderWebGL(fState, screenH, labels) {
     midRGB,
     horRGB,
     hy,
-    sunRaDec,
-    moonRaDec,
+    sunEqPos,
+    moonEqPos,
     moonPhase,
     atmosphereEnabled = true
   } = fState;
-  const sunCoords = sunRaDec ? { ra: sunRaDec.ra, dec: sunRaDec.dec } : null;
-  const moonCoords = moonRaDec ? { ra: moonRaDec.ra, dec: moonRaDec.dec } : null;
   const lst_rad = (lst_deg * Math.PI) / 180;
   const sinL = Math.sin(LAT_RAD);
   const cosL = Math.cos(LAT_RAD);
@@ -214,12 +198,12 @@ function renderWebGL(fState, screenH, labels) {
     focalLen: window.focalLen(),
     time: ts / 1000.0,
     starVisibility: typeof starVisibility !== 'undefined' ? starVisibility : 1.0,
-    dpr: window.devicePixelRatio || 1.0,
+    dpr: window.RENDER_DPR || Math.min(window.devicePixelRatio || 1.0, 1.5),
   });
 
   updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnabled);
   
-  const lights = updateSunMoonUniforms(sunCoords, moonCoords, m, ts, atmosphereEnabled);
+  const lights = updateSunMoonUniforms(sunEqPos, moonEqPos, m, ts, atmosphereEnabled);
   
   updateLightUniformsForSkyOcean(topRGB, midRGB, horRGB, ts, lights);
   

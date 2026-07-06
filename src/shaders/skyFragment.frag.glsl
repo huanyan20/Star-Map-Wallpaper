@@ -13,8 +13,6 @@ uniform vec3 topRGB;
         uniform float focalLen;
         uniform float atmosphereBlend;
         uniform float dpr;
-        uniform sampler2D uBlueNoise;
-        uniform float uBlueNoiseSize;
 
         // ------------------
         // Procedural Skyline
@@ -80,6 +78,12 @@ uniform vec3 topRGB;
         float hash(vec2 p) {
             p = mod(p, 512.0);
             return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+
+        // Interleaved Gradient Noise for dithering
+        float getDitherNoise(vec2 fragCoord) {
+            vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+            return fract(magic.z * fract(dot(fragCoord, magic.xy)));
         }
         
         // ------------------
@@ -292,8 +296,7 @@ uniform vec3 topRGB;
                 
                 finalColor = blendedOcean * 0.15 + vec3(0.001, 0.002, 0.005);
             }
-            
-            float noiseSample = texture2D(uBlueNoise, (gl_FragCoord.xy / dpr) / uBlueNoiseSize).r;
+            float noiseSample = getDitherNoise(gl_FragCoord.xy);
             float horizonDitherWeight = smoothstep(-0.02, 0.06, sz) * atmosphereBlend;
             float ditherStrength = mix(0.0, 0.0022, horizonDitherWeight);
             finalColor += (noiseSample - 0.5) * ditherStrength;

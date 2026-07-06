@@ -1,4 +1,5 @@
 # STAR Codebase Rules
 
 ## Context Initialization
-- **CRITICAL**: At the start of EVERY conversation or task, you MUST read `docs/architecture-memory-map.md` using the `view_file` tool before performing any research, code edits, or implementation planning. This file contains the authoritative map of the repository's architecture and modules.
+- **CRITICAL**: At the start of EVERY conversation or task, you MUST review **all markdown (`.md`) files** in the project (e.g., `docs/*.md`, `README.md`, etc.) using the `view_file` tool.
+- **CRITICAL**: Following the markdown review, you MUST use the `codebase-memory-mcp` tools (such as `get_architecture`, `search_graph`, etc.) to read and establish a complete understanding of the STAR project content before performing any code edits or implementation planning.

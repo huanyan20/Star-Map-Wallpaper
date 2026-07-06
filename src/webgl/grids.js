@@ -76,96 +76,94 @@ function buildThickLineGeo(flatPosArray, w) {
   return geo;
 }
 
+function createGridMesh(generatorFunc, color, horizonFade) {
+  const posArray = [];
+  generatorFunc(posArray);
+  const geo = buildThickLineGeo(posArray, 0.02);
+  const mesh = new THREE.Mesh(geo, window.createGridMaterial(color, horizonFade, 0.0, 0.15));
+  mesh.visible = false;
+  window.scene.add(mesh);
+  return mesh;
+}
+
 function setupEquatorialGrid() {
-  const eqPos = [];
-  for (let dec = -60; dec <= 80; dec += 20) {
-    for (let ra = 0; ra <= 24; ra += 0.5) {
-      const dec_rad = (dec * Math.PI) / 180;
-      const ra_rad = (ra * 15 * Math.PI) / 180;
-      eqPos.push(
-        Math.cos(dec_rad) * Math.cos(ra_rad),
-        Math.cos(dec_rad) * Math.sin(ra_rad),
-        Math.sin(dec_rad),
-      );
-      if (ra > 0 && ra < 24)
-        eqPos.push(
+  window.eqGridMesh = createGridMesh((pos) => {
+    for (let dec = -60; dec <= 80; dec += 20) {
+      for (let ra = 0; ra <= 24; ra += 0.5) {
+        const dec_rad = (dec * Math.PI) / 180;
+        const ra_rad = (ra * 15 * Math.PI) / 180;
+        pos.push(
           Math.cos(dec_rad) * Math.cos(ra_rad),
           Math.cos(dec_rad) * Math.sin(ra_rad),
           Math.sin(dec_rad),
         );
+        if (ra > 0 && ra < 24)
+          pos.push(
+            Math.cos(dec_rad) * Math.cos(ra_rad),
+            Math.cos(dec_rad) * Math.sin(ra_rad),
+            Math.sin(dec_rad),
+          );
+      }
     }
-  }
-  for (let ra = 0; ra < 24; ra += 2) {
-    for (let dec = -85; dec <= 85; dec += 5) {
-      const dec_rad = (dec * Math.PI) / 180;
-      const ra_rad = (ra * 15 * Math.PI) / 180;
-      eqPos.push(
-        Math.cos(dec_rad) * Math.cos(ra_rad),
-        Math.cos(dec_rad) * Math.sin(ra_rad),
-        Math.sin(dec_rad),
-      );
-      if (dec > -85 && dec < 85)
-        eqPos.push(
+    for (let ra = 0; ra < 24; ra += 2) {
+      for (let dec = -85; dec <= 85; dec += 5) {
+        const dec_rad = (dec * Math.PI) / 180;
+        const ra_rad = (ra * 15 * Math.PI) / 180;
+        pos.push(
           Math.cos(dec_rad) * Math.cos(ra_rad),
           Math.cos(dec_rad) * Math.sin(ra_rad),
           Math.sin(dec_rad),
         );
+        if (dec > -85 && dec < 85)
+          pos.push(
+            Math.cos(dec_rad) * Math.cos(ra_rad),
+            Math.cos(dec_rad) * Math.sin(ra_rad),
+            Math.sin(dec_rad),
+          );
+      }
     }
-  }
-  const eqGeo = buildThickLineGeo(eqPos, 0.02);
-  window.eqGridMesh = new THREE.Mesh(eqGeo, window.createGridMaterial('#ff80a0', 0.0, 0.0, 0.15));
-  window.eqGridMesh.visible = false;
-  window.scene.add(window.eqGridMesh);
+  }, '#ff80a0', 0.0);
 }
 
 function setupEclipticGrid() {
-  const ecPos = [];
-  const eps = (23.439 * Math.PI) / 180;
-  for (let lambda_deg = 0; lambda_deg <= 360; lambda_deg += 2) {
-    const lambda = (lambda_deg * Math.PI) / 180;
-    let ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
-    const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
-    ecPos.push(Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec));
-    if (lambda_deg > 0 && lambda_deg < 360)
-      ecPos.push(Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec));
-  }
-  const ecGeo = buildThickLineGeo(ecPos, 0.02);
-  window.eclipticMesh = new THREE.Mesh(ecGeo, window.createGridMaterial('#ffb040', 0.0, 0.0, 0.15));
-  window.eclipticMesh.visible = false;
-  window.scene.add(window.eclipticMesh);
+  window.eclipticMesh = createGridMesh((pos) => {
+    const eps = (23.439 * Math.PI) / 180;
+    for (let lambda_deg = 0; lambda_deg <= 360; lambda_deg += 2) {
+      const lambda = (lambda_deg * Math.PI) / 180;
+      let ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+      const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+      pos.push(Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec));
+      if (lambda_deg > 0 && lambda_deg < 360)
+        pos.push(Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec));
+    }
+  }, '#ffb040', 0.0);
 }
 
 function setupAltAzGrid() {
-  const azPos = [];
-  for (let alt = 0; alt <= 90; alt += 15) {
-    for (let az = 0; az <= 360; az += 2) {
-      const alt_r = (alt * Math.PI) / 180,
-        az_r = (az * Math.PI) / 180;
-      const sx = Math.cos(alt_r) * Math.sin(az_r); // East
-      const sy = Math.cos(alt_r) * Math.cos(az_r); // North
-      const sz = Math.sin(alt_r); // Up
-      azPos.push(sx, sy, sz);
-      if (az > 0 && az < 360) azPos.push(sx, sy, sz);
+  window.altAzGridMesh = createGridMesh((pos) => {
+    for (let alt = 0; alt <= 90; alt += 15) {
+      for (let az = 0; az <= 360; az += 2) {
+        const alt_r = (alt * Math.PI) / 180,
+          az_r = (az * Math.PI) / 180;
+        const sx = Math.cos(alt_r) * Math.sin(az_r);
+        const sy = Math.cos(alt_r) * Math.cos(az_r);
+        const sz = Math.sin(alt_r);
+        pos.push(sx, sy, sz);
+        if (az > 0 && az < 360) pos.push(sx, sy, sz);
+      }
     }
-  }
-  for (let az = 0; az < 360; az += 30) {
-    for (let alt = 0; alt <= 90; alt += 2) {
-      const alt_r = (alt * Math.PI) / 180,
-        az_r = (az * Math.PI) / 180;
-      const sx = Math.cos(alt_r) * Math.sin(az_r);
-      const sy = Math.cos(alt_r) * Math.cos(az_r);
-      const sz = Math.sin(alt_r);
-      azPos.push(sx, sy, sz);
-      if (alt > 0 && alt < 90) azPos.push(sx, sy, sz);
+    for (let az = 0; az < 360; az += 30) {
+      for (let alt = 0; alt <= 90; alt += 2) {
+        const alt_r = (alt * Math.PI) / 180,
+          az_r = (az * Math.PI) / 180;
+        const sx = Math.cos(alt_r) * Math.sin(az_r);
+        const sy = Math.cos(alt_r) * Math.cos(az_r);
+        const sz = Math.sin(alt_r);
+        pos.push(sx, sy, sz);
+        if (alt > 0 && alt < 90) pos.push(sx, sy, sz);
+      }
     }
-  }
-  const azGeo = buildThickLineGeo(azPos, 0.02);
-  window.altAzGridMesh = new THREE.Mesh(
-    azGeo,
-    window.createGridMaterial('#4880ff', 1.0, 0.0, 0.15),
-  );
-  window.altAzGridMesh.visible = false;
-  window.scene.add(window.altAzGridMesh);
+  }, '#4880ff', 1.0);
 }
 
 function setupGrids() {

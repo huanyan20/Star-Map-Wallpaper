@@ -9,6 +9,7 @@ const astroCache = {
   sunAltAz: null,
   sunAlt_deg: 0,
   moonRaDec: null,
+  moonEqPos: null,
   moonPhase: 0,
   starVisibility: 1,
 };
@@ -38,6 +39,23 @@ export function getFrameState(ts, now) {
     const sunAltAz = raDecToAltAz(sunRaDec.ra, sunRaDec.dec, lst_deg);
     const sunAlt_deg = (sunAltAz.alt * 180) / Math.PI;
     const moonRaDec = getMoonRaDec(jd);
+    
+    const sDec = (sunRaDec.dec * Math.PI) / 180;
+    const sRa = (sunRaDec.ra * 15 * Math.PI) / 180;
+    const sunEqPos = {
+      x: Math.cos(sDec) * Math.cos(sRa),
+      y: Math.cos(sDec) * Math.sin(sRa),
+      z: Math.sin(sDec)
+    };
+
+    const mDec = (moonRaDec.dec * Math.PI) / 180;
+    const mRa = (moonRaDec.ra * 15 * Math.PI) / 180;
+    const moonEqPos = {
+      x: Math.cos(mDec) * Math.cos(mRa),
+      y: Math.cos(mDec) * Math.sin(mRa),
+      z: Math.sin(mDec)
+    };
+
     const moonPhase = moonRaDec.phase;
     const starVisibility = window.toggles && window.toggles.atmosphere
       ? Math.max(0, Math.min(1, (-sunAlt_deg - 2) / 10))
@@ -49,7 +67,9 @@ export function getFrameState(ts, now) {
     astroCache.sunRaDec = sunRaDec;
     astroCache.sunAltAz = sunAltAz;
     astroCache.sunAlt_deg = sunAlt_deg;
+    astroCache.sunEqPos = sunEqPos;
     astroCache.moonRaDec = moonRaDec;
+    astroCache.moonEqPos = moonEqPos;
     astroCache.moonPhase = moonPhase;
     astroCache.starVisibility = starVisibility;
   }
@@ -96,7 +116,9 @@ export function getFrameState(ts, now) {
     sunRaDec: astroCache.sunRaDec,
     sunAltAz: astroCache.sunAltAz,
     sunAlt_deg: astroCache.sunAlt_deg,
+    sunEqPos: astroCache.sunEqPos,
     moonRaDec: astroCache.moonRaDec,
+    moonEqPos: astroCache.moonEqPos,
     moonPhase: astroCache.moonPhase,
     starVisibility: astroCache.starVisibility,
     topRGB: bgCache.topRGB,
