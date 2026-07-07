@@ -138,7 +138,7 @@ uniform vec3 topRGB;
                 float sunCosTheta = dot(viewDir, sunVec);
                 float sunPhase = pow(max(0.0, sunCosTheta), 12.0) * 0.6 + pow(max(0.0, sunCosTheta), 4.0) * 0.15;
                 float sunVisibility = smoothstep(-0.08, 0.0, sunVec.z) * atmosphereBlend;
-                vec3 sunGlowColor = mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.1, sunVec.z));
+                vec3 sunGlowColor = mix(vec3(1.0, 0.25, 0.05), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.15, sunVec.z));
                 color += sunGlowColor * sunPhase * sunVisibility;
                 
                 // Add moonlight scattering if moon is the dominant light source

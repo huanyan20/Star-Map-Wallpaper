@@ -828,10 +828,10 @@ window.setupSun = function () {
             // Core sun disk 
             float coreRadius = 0.007; 
              
-            // Color shifts towards orange/red near horizon 
-            float altFactor = smoothstep(-0.05, 0.2, vAltitude); 
-            vec3 sunColor = mix(vec3(1.0, 0.4, 0.2), vec3(1.0, 0.98, 0.95), altFactor); 
-            vec3 haloColor = mix(vec3(1.0, 0.3, 0.1), vec3(1.0, 0.9, 0.8), altFactor); 
+            // Color shifts towards deep orange/red near horizon (Rayleigh scattering)
+            float altFactor = smoothstep(-0.05, 0.15, vAltitude); 
+            vec3 sunColor = mix(vec3(1.0, 0.2, 0.05), vec3(1.0, 0.98, 0.95), altFactor); 
+            vec3 haloColor = mix(vec3(1.0, 0.15, 0.0), vec3(1.0, 0.9, 0.8), altFactor); 
              
             float core = 1.0 - smoothstep(coreRadius, coreRadius + 0.001, r); 
             
