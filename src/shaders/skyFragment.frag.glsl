@@ -95,7 +95,7 @@ uniform vec3 topRGB;
         // ------------------
         // Physical Atmosphere
         // ------------------
-        vec3 getAtmosphere(vec3 r, vec3 sunDir, float turb) {
+        vec3 getAtmosphere(vec3 r, vec3 sunDir, float turb, float sampleCountF) {
             float earthRadius = 6360e3;
             float atmRadius = 6420e3;
             vec3 p0 = vec3(0.0, 0.0, earthRadius + 10.0);
@@ -116,11 +116,7 @@ uniform vec3 topRGB;
                 if (tEarth > 0.0) t = min(t, tEarth);
             }
             
-            // Use a fixed, high sample count for the whole atmosphere so the
-            // horizon stays smooth without introducing concentric layers.
-            float sampleCountF = 96.0;
             int sampleCount = int(sampleCountF);
-            float stepSize = t / max(sampleCountF, 1.0);
             
             vec3 rayleigh = vec3(0.0);
             vec3 mie = vec3(0.0);
@@ -134,16 +130,27 @@ uniform vec3 topRGB;
             float Hr = 8000.0;
             float Hm = 1200.0;
             
+            float prevSampleT = 0.0;
+            
             for(int i = 0; i < 160; i++) {
                 if (i >= sampleCount) break;
-                float sampleIndex = float(i) + 0.5;
-                float sampleT = stepSize * sampleIndex;
-                vec3 p = p0 + r * sampleT;
+                
+                // Non-uniform sampling: denser near camera/horizon, sparser at high altitudes
+                // Using a quadratic distribution u^2 gives a good balance of detail where it matters most.
+                float u = (float(i) + 1.0) / sampleCountF;
+                float uMapped = u * u;
+                float sampleT = t * uMapped;
+                float dt = sampleT - prevSampleT;
+                
+                // Sample exactly at the midpoint of the current segment
+                float midT = prevSampleT + dt * 0.5;
+                vec3 p = p0 + r * midT;
+                
                 float height = length(p) - earthRadius;
                 if (height < 0.0) break;
                 
-                float hr = exp(-height / Hr) * stepSize;
-                float hm = exp(-height / Hm) * stepSize;
+                float hr = exp(-height / Hr) * dt;
+                float hm = exp(-height / Hm) * dt;
                 optDepthR += hr;
                 optDepthM += hm;
                 
@@ -171,6 +178,8 @@ uniform vec3 topRGB;
                 
                 rayleigh += hr * attenuation;
                 mie += hm * attenuation;
+                
+                prevSampleT = sampleT;
             }
             
             float cosTheta = dot(r, sunDir);
@@ -225,7 +234,8 @@ uniform vec3 topRGB;
                 // Physical atmosphere scattering
                 vec3 sunVec = normalize(sunPosition);
                 
-                vec3 physColor = getAtmosphere(viewDir, sunVec, turbidity);
+                // Sky pass uses 16-24 non-uniform steps for high quality
+                vec3 physColor = getAtmosphere(viewDir, sunVec, turbidity, 24.0);
                 
                 // Exposure scale only — tone-mapping moved to composite pass (bloom.js)
                 physColor = physColor * 1.15;
@@ -293,7 +303,11 @@ uniform vec3 topRGB;
                 // Ocean Base Background
                 // Keep the same ocean logic to blend nicely with the physical sky
                 vec3 sunVec = normalize(sunPosition);
-                vec3 physOcean = getAtmosphere(normalize(vec3(vx, vy, 0.0)), sunVec, turbidity);
+                
+                // Ocean reflection pass only needs 4 steps since it's heavily darkened and blurred
+                // This eliminates the expensive double-call for the sea branch.
+                vec3 physOcean = getAtmosphere(normalize(vec3(vx, vy, 0.0)), sunVec, turbidity, 4.0);
+                
                 // Exposure scale only — tone-mapping moved to composite pass (bloom.js)
                 physOcean = physOcean * 1.5;
                 
