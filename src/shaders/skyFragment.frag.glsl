@@ -92,113 +92,6 @@ uniform vec3 topRGB;
             return fract(magic.z * fract(dot(fragCoord, magic.xy)));
         }
         
-        // ------------------
-        // Physical Atmosphere
-        // ------------------
-        vec3 getAtmosphere(vec3 r, vec3 sunDir, float turb, float sampleCountF) {
-            float earthRadius = 6360e3;
-            float atmRadius = 6420e3;
-            vec3 p0 = vec3(0.0, 0.0, earthRadius + 10.0);
-            
-            float a = dot(r, r);
-            float b = 2.0 * dot(p0, r);
-            // Precalculate dot(p0, p0) - atmRadius^2 to avoid catastrophic cancellation: (6360010^2 - 6420000^2)
-            float c = -766672800000.0;
-            float d = b * b - 4.0 * a * c;
-            if(d < 0.0) return vec3(0.0);
-            float t = (-b + sqrt(d)) / (2.0 * a);
-            
-            // Check Earth intersection for shadow (Belt of Venus)
-            // Precalculate dot(p0, p0) - earthRadius^2 = (6360010^2 - 6360000^2) = 127200100.0
-            float dEarth = b * b - 4.0 * a * 127200100.0;
-            if (dEarth > 0.0) {
-                float tEarth = (-b - sqrt(dEarth)) / (2.0 * a);
-                if (tEarth > 0.0) t = min(t, tEarth);
-            }
-            
-            int sampleCount = int(sampleCountF);
-            
-            vec3 rayleigh = vec3(0.0);
-            vec3 mie = vec3(0.0);
-            
-            float optDepthR = 0.0;
-            float optDepthM = 0.0;
-            
-            vec3 betaR = vec3(5.8e-6, 13.5e-6, 33.1e-6);
-            vec3 betaM = vec3(21e-6) * turb;
-            
-            float Hr = 8000.0;
-            float Hm = 1200.0;
-            
-            float prevSampleT = 0.0;
-            
-            for(int i = 0; i < 160; i++) {
-                if (i >= sampleCount) break;
-                
-                // Non-uniform sampling: denser near camera/horizon, sparser at high altitudes
-                // Using a quadratic distribution u^2 gives a good balance of detail where it matters most.
-                float u = (float(i) + 1.0) / sampleCountF;
-                float uMapped = u * u;
-                float sampleT = t * uMapped;
-                float dt = sampleT - prevSampleT;
-                
-                // Sample exactly at the midpoint of the current segment
-                float midT = prevSampleT + dt * 0.5;
-                vec3 p = p0 + r * midT;
-                
-                float height = length(p) - earthRadius;
-                if (height < 0.0) break;
-                
-                float hr = exp(-height / Hr) * dt;
-                float hm = exp(-height / Hm) * dt;
-                optDepthR += hr;
-                optDepthM += hm;
-                
-                // Optical depth to sun
-                float pLen = length(p);
-                vec3 up = p / pLen;
-                float cosZenith = dot(up, sunDir);
-                
-                // Check if sun is blocked by Earth (Soft shadow / Penumbra to prevent geometric banding)
-                float sunZenithRad = acos(clamp(cosZenith, -1.0, 1.0));
-                float horizonAngle = 1.5707963 + acos(clamp(earthRadius / pLen, 0.0, 1.0));
-                // Use a broader, softer shadow transition to avoid any flickering edge feel.
-                float earthShadow = smoothstep(horizonAngle + 0.045, horizonAngle - 0.045, sunZenithRad);
-                
-                float sunZenithAngle = sunZenithRad * 57.29578;
-                float chR = 1.0 / (max(0.0, cosZenith) + 0.18 * pow(max(0.001, 93.885 - sunZenithAngle), -1.253));
-                float sunOptDepthR = exp(-height / Hr) * Hr * chR;
-                float sunOptDepthM = exp(-height / Hm) * Hm * chR;
-                
-                vec3 tau = betaR * (optDepthR + sunOptDepthR) + betaM * 1.1 * (optDepthM + sunOptDepthM);
-                
-                // Ozone absorption (Chappuis band)
-                vec3 ozone = vec3(3.426, 8.298, 0.356) * 6e-7 * (optDepthR + sunOptDepthR);
-                vec3 attenuation = exp(-tau - ozone) * earthShadow;
-                
-                rayleigh += hr * attenuation;
-                mie += hm * attenuation;
-                
-                prevSampleT = sampleT;
-            }
-            
-            float cosTheta = dot(r, sunDir);
-            float phaseR = 1.0 + 0.5 * cosTheta * cosTheta;
-            
-            // Pull the atmosphere response back toward the original sky color scale.
-            // The sky should be driven mainly by the existing gradient colors,
-            // with the physical atmosphere only adding a subtle tint.
-            float g = 0.35;
-            float phaseM = 0.6 + 0.15 * cosTheta;
-            phaseM = phaseM * (1.0 - 0.2 * g);
-            
-            vec3 scatter = 1.4 * (rayleigh * betaR * phaseR + mie * betaM * phaseM);
-            
-            // Nighttime ambient from stars/moon
-            float nightAmbient = max(0.0, -sunDir.z * 0.5) * 0.005;
-            
-            return scatter * 0.55 + vec3(0.003, 0.0045, 0.008) * nightAmbient;
-        }
 
         void main() {
             // Inverse Stereographic Projection to find Altitude (sz)
@@ -231,32 +124,29 @@ uniform vec3 topRGB;
             vec3 finalColor;
             
             if (sz >= -0.015) { 
-                // Physical atmosphere scattering
                 vec3 sunVec = normalize(sunPosition);
-                
-                // Sky pass uses 16-24 non-uniform steps for high quality
-                vec3 physColor = getAtmosphere(viewDir, sunVec, turbidity, 24.0);
-                
-                // Exposure scale only — tone-mapping moved to composite pass (bloom.js)
-                physColor = physColor * 1.15;
-                
-                // Add moonlight scattering if moon is the dominant light source (simple approximation)
-                if (lightIntensity > 0.0 && dot(lightDir, sunPosition) < 0.9) {
-                    float moonGlow = max(0.0, dot(viewDir, lightDir));
-                    vec3 moonColor = vec3(0.5, 0.6, 0.8) * lightIntensity * 0.05 * pow(moonGlow, 4.0);
-                    physColor += moonColor;
-                }
                 
                 // Keep the sky base color anchored to the original gradient tones.
                 vec3 baseGrad = mix(midRGB, topRGB, smoothstep(0.0, 0.5, sz));
                 baseGrad = mix(horRGB, baseGrad, smoothstep(-0.015, 0.1, sz));
                 
-                vec3 color = mix(baseGrad, physColor, atmosphereBlend * 0.18);
-                
-                // Push the overall sky toward a cooler, less green tone while
-                // keeping the gradient-based base color dominant.
+                // Push the overall sky toward a cooler, less green tone
                 vec3 skyTint = mix(vec3(1.00, 0.88, 0.84), vec3(0.82, 0.90, 1.04), smoothstep(-0.02, 0.35, sz));
-                color *= skyTint;
+                vec3 color = baseGrad * skyTint;
+                
+                // Analytical Sun Glow (Stellarium style)
+                float sunCosTheta = dot(viewDir, sunVec);
+                float sunPhase = pow(max(0.0, sunCosTheta), 12.0) * 0.6 + pow(max(0.0, sunCosTheta), 4.0) * 0.15;
+                float sunVisibility = smoothstep(-0.08, 0.0, sunVec.z) * atmosphereBlend;
+                vec3 sunGlowColor = mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.1, sunVec.z));
+                color += sunGlowColor * sunPhase * sunVisibility;
+                
+                // Add moonlight scattering if moon is the dominant light source
+                if (lightIntensity > 0.0 && dot(lightDir, sunPosition) < 0.9) {
+                    float moonGlow = max(0.0, dot(viewDir, lightDir));
+                    vec3 moonColor = vec3(0.5, 0.65, 0.85) * lightIntensity * 0.1 * pow(moonGlow, 5.0) * atmosphereBlend;
+                    color += moonColor;
+                }
                 
                 // ------------------
                 // Local Light Pollution (Kaohsiung Skyglow - Bortle 8/9)
@@ -301,18 +191,18 @@ uniform vec3 topRGB;
                 finalColor = color;
             } else {
                 // Ocean Base Background
-                // Keep the same ocean logic to blend nicely with the physical sky
                 vec3 sunVec = normalize(sunPosition);
+                vec3 viewHoriz = normalize(vec3(vx, vy, 0.0));
                 
-                // Ocean reflection pass only needs 4 steps since it's heavily darkened and blurred
-                // This eliminates the expensive double-call for the sea branch.
-                vec3 physOcean = getAtmosphere(normalize(vec3(vx, vy, 0.0)), sunVec, turbidity, 4.0);
-                
-                // Exposure scale only — tone-mapping moved to composite pass (bloom.js)
-                physOcean = physOcean * 1.5;
+                // Analytical sun reflection on the base ocean layer
+                float sunCosTheta = dot(viewHoriz, sunVec);
+                float sunPhase = pow(max(0.0, sunCosTheta), 8.0) * 0.3;
+                float sunVisibility = smoothstep(-0.08, 0.0, sunVec.z) * atmosphereBlend;
+                vec3 sunGlowColor = mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.1, sunVec.z));
+                vec3 physOcean = sunGlowColor * sunPhase * sunVisibility * 1.5;
                 
                 vec3 nightOcean = horRGB * 0.2; // Darker version of horizon color for sea base
-                vec3 blendedOcean = mix(nightOcean, physOcean, atmosphereBlend);
+                vec3 blendedOcean = mix(nightOcean, nightOcean + physOcean, atmosphereBlend);
                 
                 finalColor = blendedOcean * 0.15 + vec3(0.001, 0.002, 0.005);
             }
