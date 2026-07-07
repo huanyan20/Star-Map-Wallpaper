@@ -10,6 +10,9 @@ export default defineConfig({
           if (id.includes('src/data/')) {
             return 'astroData';
           }
+          if (id.includes('node_modules/three/')) {
+            return 'three';
+          }
         }
       }
     }

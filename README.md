@@ -22,8 +22,4 @@
   ```
   這會自動先執行 `npm run build` 打包應用程式，接著啟動輕量化的 Node.js HTTP Server 提供 `dist/` 產物，最後使用 Puppeteer 開啟無頭瀏覽器驗證整個 App 載入與渲染過程中沒有任何致命錯誤 (Page Errors 或 404)。
 
-## 後續優化事項
 
-- 渲染器 Warning 清理：目前 `test:smoke` 會出現以下非阻塞型的 WebGL 警告，將於後續視覺與渲染優化時處理：
-  - `THREE.Material: 'derivatives' is not a property of THREE.ShaderMaterial.`
-  - `THREE.WebGLProgram: Program Info Log: warning X4000: use of potentially uninitialized variable (f_getProceduralSkyline)`

@@ -47,7 +47,7 @@ The `codebase-memory-mcp` knowledge graph is actively maintained. To reduce nois
 - ✅ Milky Way particle system (300k pts) — fully wired into render pipeline
 - ✅ Nebula texture-decal system — **active** with 6 Messier DSOs (M31, M42, M45, M13, M8, M20). Textures in `assets/nebulas/`, config in `assets/nebulas.json`.
 - ✅ Smoke test passing (build + puppeteer headless)
-- 🔲 Bundle code-split (main JS ~953 kB minified, candidate for dynamic import)
+- ✅ Bundle code-split (main JS significantly reduced via Dynamic Import and manualChunks)
 - 🔲 Time unlock from fixed 21:00 (dev mode convenience)
 - ✅ `nebulas.json` config and nebula textures — complete (M31 M42 M45 M13 M8 M20)
 
