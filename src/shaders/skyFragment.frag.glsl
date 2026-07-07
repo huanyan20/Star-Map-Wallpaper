@@ -151,7 +151,7 @@ uniform vec3 topRGB;
                 
                 // Attenuate sunset glow when sun is near horizon (since it is naturally too bright)
                 float sunsetDim = exp(-pow(sunVec.z * 12.0, 2.0)); 
-                float sunVisibility = smoothstep(-0.08, 0.0, sunVec.z) * atmosphereBlend * mix(1.0, 0.4, sunsetDim);
+                float sunVisibility = smoothstep(-0.20, 0.0, sunVec.z) * atmosphereBlend * mix(1.0, 0.4, sunsetDim);
                 
                 vec3 sunGlowColor = mix(vec3(1.0, 0.25, 0.05), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.15, sunVec.z));
                 color += sunGlowColor * sunPhase * sunVisibility;

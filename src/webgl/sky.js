@@ -825,8 +825,8 @@ window.setupSun = function () {
             // calculate angle for rays (using c is fine since rays emanate from center)
             float angle = atan(c.y, c.x);
              
-            // Core sun disk (真實太陽角半徑大約 0.265 度，此處 r=1.0 對應 1.25 度，所以核心應為 0.21)
-            float coreRadius = 0.21; 
+            // Core sun disk (依照使用者要求稍微放大太陽球體本身)
+            float coreRadius = 0.35; 
              
             // Color shifts towards deep orange/red near horizon (Rayleigh scattering)
             float altFactor = smoothstep(-0.05, 0.15, vAltitude); 
