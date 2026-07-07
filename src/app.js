@@ -119,7 +119,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-window.livelyWallpaperPlaybackChanged = function(isPaused) {
+window.livelyWallpaperPlaybackChanged = function (isPaused) {
   isLivelyPaused = isPaused;
   if (isPaused) {
     if (rafId !== null) {
@@ -139,7 +139,7 @@ function render(ts) {
   //   scheduleRender();
   //   return;
   // }
-  
+
   const dt = lastFrameT === 0 ? 0 : (ts - lastFrameT) / 1000;
   lastFrameT = ts;
   lastRenderT = ts;
@@ -160,7 +160,7 @@ function render(ts) {
   if (Math.abs(state.velZoom) > 0.00001) {
     state.hFOV *= Math.pow(1.03, state.velZoom * 2.0);
     state.hFOV = Math.max(toRad(15), Math.min(toRad(150), state.hFOV));
-    state.velZoom *= 0.98; 
+    state.velZoom *= 0.98;
   }
 
   if (dt > 0 && dt < 0.5) updateEntities(dt);
@@ -173,7 +173,7 @@ function render(ts) {
     lastFPSTime = ts;
   }
   const now = new Date();
-  
+
   // 1. Generate single frame state
   const fState = getFrameState(ts, now);
   fState.dt = dt;
@@ -187,7 +187,7 @@ function render(ts) {
   if (window.updateCamCache) window.updateCamCache();
   buildStarPositionCache(lst_deg, state);
 
-  drawBackground(ctx, fState, W, H); 
+  drawBackground(ctx, fState, W, H);
 
   ctx.clearRect(0, 0, W, H);
   const webglLabels = buildWebGLLabels(lst_deg, starVisibility, state, CX, CY, W, H);

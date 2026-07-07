@@ -3,6 +3,7 @@ import { setupFieldStars } from './stars/fieldStars.js';
 import { setupNamedStars } from './stars/namedStars.js';
 import { setupConstellationLines } from './stars/constellationLines.js';
 import { registerAdditiveSkyMaterial } from './additiveSkyMaterial.js';
+import { state } from '../core/state.js';
 
 async function loadStarCatalog() {
   fetchChunksMeta();
@@ -59,6 +60,7 @@ export function fetchChunksMeta() {
               loaded: false,
               promise: null,
               pointsMesh: null,
+              lastVisibleTime: performance.now(),
             });
           }
           if (data.lod2Count > 0) {
@@ -72,6 +74,7 @@ export function fetchChunksMeta() {
               loaded: false,
               promise: null,
               pointsMesh: null,
+              lastVisibleTime: performance.now(),
             });
           }
         }
@@ -141,13 +144,15 @@ window.updateStarLOD = function (hFOV) {
   const aspect = window.innerHeight / window.innerWidth;
   const diagFov = window.hFOV * Math.sqrt(1 + aspect * aspect);
   const cameraRadius = diagFov / 2;
+  const nowTime = performance.now();
+  const isIdle = (nowTime - state.lastInteractionTime) > 5000;
 
   for (const chunk of window.STAR_CHUNKS) {
     const triggerFov = chunk.loadFov || chunk.maxFov;
     const fovOk = window.hFOV <= triggerFov;
     
     let visible = false;
-    if (fovOk) {
+    if (fovOk && !isIdle) {
       const dot = lookDirEq.dot(chunk.center);
       const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
       if (angle <= cameraRadius + chunk.radiusAngle) {
@@ -156,6 +161,7 @@ window.updateStarLOD = function (hFOV) {
     }
 
     if (visible) {
+      chunk.lastVisibleTime = nowTime;
       if (!chunk.loaded && !chunk.promise) {
         chunk.promise = loadStarChunk(chunk.url)
           .then((geo) => {
@@ -178,6 +184,15 @@ window.updateStarLOD = function (hFOV) {
     } else {
       if (chunk.loaded && chunk.pointsMesh) {
         chunk.pointsMesh.visible = false;
+        
+        if (nowTime - chunk.lastVisibleTime > 15000) {
+          chunk.pointsMesh.geometry.dispose();
+          chunk.pointsMesh.material.dispose();
+          window.scene.remove(chunk.pointsMesh);
+          chunk.pointsMesh = null;
+          chunk.loaded = false;
+          chunk.promise = null;
+        }
       }
     }
   }

@@ -1,8 +1,9 @@
 # STAR Codebase Rules
 
 ## Context Initialization
-- **CRITICAL**: At the start of EVERY conversation or task, you MUST review **all markdown (`.md`) files** in the project (e.g., `docs/*.md`, `README.md`, etc.) using the `view_file` tool.
-- **CRITICAL**: Following the markdown review, you MUST use the `codebase-memory-mcp` tools (such as `get_architecture`, `search_graph`, etc.) to read and establish a complete understanding of the STAR project content before performing any code edits or implementation planning.
+- **CRITICAL**: At the start of EVERY conversation or task, you MUST review **`docs/architecture-memory-map.md`** first. This file serves as the definitive codebase memory map for the STAR project.
+- **CRITICAL**: After reviewing the architecture memory map, review any other relevant markdown (`.md`) files in the project (e.g., `README.md`, `docs/performance-plan.md`, etc.) using the `view_file` tool to establish a complete understanding before performing edits.
+- *Note*: If `codebase-memory-mcp` tools (like `get_architecture`, `search_graph`) are available in the tool list, use them. Otherwise, rely on `grep_search` and `docs/architecture-memory-map.md`.
 
 ## Architecture & Performance Guidelines
 - **Strict GPU Offloading**: Never compute per-star or per-particle coordinates, positions, or animations (e.g., twinkling) on the CPU within the render loop. Always use a single `BufferGeometry` with `THREE.Points` and handle transformations (`eqToHoriz`) and animations (via `uTime` and `seed` attributes) entirely within Vertex and Fragment Shaders.

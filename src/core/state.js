@@ -21,6 +21,7 @@ export const state = {
   SH_COLS: 32,
   SH_ROWS: 32,
   lastTD: null,
+  lastInteractionTime: performance.now(),
   
   get lookAz() { return window.lookAz; },
   set lookAz(v) { window.lookAz = v; },

@@ -9,6 +9,7 @@ export function initControls(canvas) {
     state.velEl = 0;
     state.lastX = e.clientX;
     state.lastY = e.clientY;
+    state.lastInteractionTime = performance.now();
   });
   window.addEventListener('mouseup', () => {
     if (state.isDragging) {
@@ -22,6 +23,7 @@ export function initControls(canvas) {
       const sens = state.hFOV / state.W;
       state.velAz = -(e.clientX - state.lastX) * sens;
       state.velEl = (e.clientY - state.lastY) * sens;
+      state.lastInteractionTime = performance.now();
       state.lookAz += state.velAz;
       state.lookEl += state.velEl;
       state.lookEl = Math.max(toRad(-89.9), Math.min(toRad(89.9), state.lookEl));
@@ -38,6 +40,7 @@ export function initControls(canvas) {
     e.preventDefault();
     const d = Math.sign(delta);
     state.velZoom += d * 0.009;
+    state.lastInteractionTime = performance.now();
   }
   window.addEventListener('wheel', handleZoom, { passive: false });
   window.addEventListener('mousewheel', handleZoom, { passive: false });
@@ -52,6 +55,7 @@ export function initControls(canvas) {
       state.velEl = 0;
       state.lastX = e.touches[0].clientX;
       state.lastY = e.touches[0].clientY;
+      state.lastInteractionTime = performance.now();
     }
   }, { passive: true });
   canvas.addEventListener('touchend', () => {
@@ -73,10 +77,12 @@ export function initControls(canvas) {
         state.hFOV = Math.max(toRad(5), Math.min(toRad(185), state.hFOV));
       }
       state.lastTD = d;
+      state.lastInteractionTime = performance.now();
     } else if (e.touches.length === 1 && state.isDragging) {
       const sens = state.hFOV / state.W;
       state.velAz = -(e.touches[0].clientX - state.lastX) * sens;
       state.velEl = (e.touches[0].clientY - state.lastY) * sens;
+      state.lastInteractionTime = performance.now();
       state.lookAz += state.velAz;
       state.lookEl += state.velEl;
       state.lookEl = Math.max(toRad(-89.9), Math.min(toRad(89.9), state.lookEl));

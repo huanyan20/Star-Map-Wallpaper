@@ -26,9 +26,7 @@
   - 監聽 `livelyWallpaperPlaybackChanged` 事件。
   - 當收到 `IsPaused === true` 時，主動暫停 `requestAnimationFrame` 迴圈，避免 JavaScript 在背後空轉。
   - 可利用 `livelyPropertyListener(name, val)` 監聽使用者設定檔 (如 LivelyProperties.json)，動態提供「星星密度」、「FPS 上限」等滑桿功能。
-- **Wallpaper Engine 支援**：
-  - 監聽 `wallpaperPropertyListener.applyGeneralProperties`，取得使用者自訂的 FPS 上限 `properties.fps`。
-  - 用此數值進行 `requestAnimationFrame` 的節流 (Throttling)，不要自己強制寫死固定 FPS。
+
 
 ### 4. 模組唯一性與雙重渲染排查
 - 確保沒有遺留的舊引擎 (如原有的 `webgl_engine.js` 加上 C/WASM 編譯的 Stellarium Web Engine) 在背景同時運作。
