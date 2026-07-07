@@ -43,33 +43,39 @@ uniform vec3 topRGB;
             float finalAlt = max(mountAlt, max(buildings, max(tower85, towerBase)));
             
             float aa = fwidth(sz) * 1.5;
-            float aaAlpha = 1.0 - smoothstep(finalAlt - aa, finalAlt + aa, sz);
-            aaAlpha *= smoothstep(-aa, aa, sz);
+            float baseAaAlpha = 1.0 - smoothstep(finalAlt - aa, finalAlt + aa, sz);
+            baseAaAlpha *= smoothstep(-aa, aa, sz);
             
-            if (aaAlpha > 0.0) {
+            if (baseAaAlpha > 0.0) {
                 vec3 color = vec3(0.002, 0.005, 0.01);
-                vec2 grid = vec2(floor(rawU * 3000.0), floor(sz * 500.0));
                 
-                float lightProb = fract(sin(dot(grid, vec2(12.9898, 78.233))) * 43758.5453);
-                float density = smoothstep(0.03, 0.0, sz);
-                if (buildings > 0.005 || uDist85 < 0.01) density *= 2.0;
-                
-                if (lightProb > (1.0 - 0.015 * density)) {
-                    float cHash = fract(sin(dot(grid, vec2(39.346, 11.135))) * 43758.5453);
-                    vec3 lightColor = mix(vec3(1.0, 0.8, 0.3), vec3(0.7, 0.9, 1.0), cHash);
-                    color = lightColor * 1.5;
+                if (baseAaAlpha > 0.0) {
+                    vec2 gridFloat = vec2(rawU * 3000.0, sz * 500.0);
+                    vec2 grid = floor(gridFloat);
+                    vec2 gridFract = fract(gridFloat);
+                    
+                    float lightProb = fract(sin(dot(grid, vec2(12.9898, 78.233))) * 43758.5453);
+                    float density = smoothstep(0.03, 0.0, sz);
+                    if (buildings > 0.005 || uDist85 < 0.01) density *= 2.0;
+                    
+                    if (lightProb > (1.0 - 0.015 * density)) {
+                        float cHash = fract(sin(dot(grid, vec2(39.346, 11.135))) * 43758.5453);
+                        vec3 lightColor = mix(vec3(1.0, 0.8, 0.3), vec3(0.7, 0.9, 1.0), cHash);
+                        
+                        // 消除硬切邊的方形雜訊，將燈光改為柔和的點光源
+                        float dist = length(gridFract - vec2(0.5));
+                        float dotAlpha = 1.0 - smoothstep(0.2, 0.4, dist);
+                        color += lightColor * 1.5 * dotAlpha;
+                    }
                 }
                 
+                // 航空障礙燈與信號燈
                 if (sz > 0.058 && sz < 0.062 && uDist85 < 0.001) {
                     float blink = step(0.5, sin(time * 2.0));
-                    color = vec3(1.0, 0.2, 0.2) * 1.8 * blink;
-                }
-                if (mountAlt == shoushan && sz > mountAlt - 0.005) {
-                    float blink = step(0.5, sin(time * 3.0));
-                    color += vec3(1.0, 0.2, 0.2) * 1.5 * blink;
+                    color += vec3(1.0, 0.2, 0.2) * 1.8 * blink;
                 }
                 
-                result = vec4(color, aaAlpha);
+                result = vec4(color, baseAaAlpha);
             }
             return result;
         }

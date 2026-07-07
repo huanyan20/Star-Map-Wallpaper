@@ -49,10 +49,6 @@ uniform vec3 topRGB;
                     float blink = step(0.5, sin(time * 2.0));
                     color = vec3(1.0, 0.2, 0.2) * 1.8 * blink;
                 }
-                if (shoushanAlt > 0.001 && sz > shoushanAlt - 0.005) {
-                    float blink = step(0.5, sin(time * 3.0));
-                    color += vec3(1.0, 0.2, 0.2) * 1.5 * blink;
-                }
                 
                 result = vec4(color, aaAlpha);
             }
@@ -123,10 +119,10 @@ uniform vec3 topRGB;
             // 取各類衰減中最嚴重的一個 (值越大代表越需要簡化)
             float iterFactor = max(distIter, max(angleIter, troughIter));
             
-            // 近處/大角度/波峰(3層)，遠處/平視/波谷(1層)
-            float maxIter = mix(3.0, 1.0, iterFactor);
+            // 近處/大角度/波峰(8層)，遠處/平視/波谷(1層)
+            float maxIter = mix(8.0, 1.0, iterFactor);
             
-            for (int i = 0; i < 3; i++) { // 固定迴圈次數以符合 WebGL 限制
+            for (int i = 0; i < 8; i++) { // 固定迴圈次數以符合 WebGL 限制
                 float iterWeight = clamp(maxIter - float(i), 0.0, 1.0);
                 
                 p = rot * p;
@@ -217,7 +213,7 @@ uniform vec3 topRGB;
                 uv -= windDir * time * 0.6;
                 
                 // 傳入 exactRay.z 與 vWorldPos.z 以同步降低複雜度與強度
-                vec3 finalBump = getWaterNormal(uv, time, dist, -exactRay.z, vWorldPos.z);
+                finalBump = getWaterNormal(uv, time, dist, -exactRay.z, vWorldPos.z);
                 
                 // 放大法線的 X, Y 分量來增強波紋起伏，讓斜率更陡峭以產生真實的高度反射感
                 finalBump.xy *= 6.0 * bumpDistAttenuation;
@@ -284,25 +280,42 @@ uniform vec3 topRGB;
             vec3 horizonColor = (horRGB * 0.6 + midRGB * 0.3 + vec3(0.005, 0.01, 0.02)) * skyDimming;
             
             // 取出反射向量的 Z 軸來混合天頂與地平線
-            // [優化] 響應需求：將地平線微光的範圍嚴格限制在仰角 7.5 度 (sin(7.5) ≈ 0.13) 內
-            // 超過 7.5 度就會迅速且平滑地過渡為極暗的 zenithColor，避免地平線光暈延伸到近處水面
+            // 【重要修復】：放寬漸層至 1.0，這樣即使是近處波浪（朝向天頂的反射）也能捕捉到微弱的地平線底光，避免海浪變成隱形的死黑
             float skyBlend = clamp(refDir.z, 0.0, 1.0);
-            float skyMixFactor = smoothstep(0.0, 0.13, skyBlend); 
+            float skyMixFactor = smoothstep(0.0, 1.0, skyBlend); 
             vec3 skyReflection = mix(horizonColor, zenithColor, skyMixFactor); 
             
             // 修正向下反射 (refDir.z < 0.0)：
-            // 當海浪斜面過於陡峭而朝下反射時，應該反射暗色的深海水面
-            // 同理，將向下反射的漸層範圍也嚴格限制在俯角 7.5 度 (0.13) 內，避免微光向下延伸
-            float groundBlend = smoothstep(0.0, 0.13, -refDir.z);
-            skyReflection = mix(skyReflection, deepWater * 0.5, groundBlend);
+            float groundBlend = smoothstep(0.0, 0.3, -refDir.z);
+            
+            // 天際線與城市倒影 (Skyline & City Reflection)
+            // ==========================================
+            // 計算真實透視射線，以確保倒影的位置與天空的城市輪廓完全對齊
+            float truePx = px / max(focalLen, 0.001);
+            float truePy = py / max(focalLen, 0.001);
+            float trueRho2 = (truePx * truePx + truePy * truePy) / 4.0;
+            float trueScrDepth = (1.0 - trueRho2) / (1.0 + trueRho2);
+            float trueK = 1.0 + trueRho2;
+            float truePr = truePx / trueK;
+            float truePu = truePy / trueK;
+            vec3 trueExactRay = normalize(vec3(
+                trueScrDepth * lx + truePr * rx + truePu * ux,
+                trueScrDepth * ly + truePr * ry + truePu * uy,
+                trueScrDepth * lz + truePr * rz + truePu * uz
+            ));
             
             // 讓真實的環境反射向量 (包含海浪擾動) 取代死板的鏡像，使城市倒影跟著海浪扭曲
-            float rawU = atan(refDir.y, refDir.x) / (2.0 * 3.1415926535) + 0.5;
-            float refSz = refDir.z;
+            vec3 cityRefDir = reflect(-trueExactRay, N);
+            float rawU = atan(cityRefDir.y, cityRefDir.x + 1e-6) / (2.0 * 3.1415926535) + 0.5;
+            
+            // 【視覺優化】：將反射的垂直採樣高度大幅度壓縮 (* 0.15)，強制將城市燈光的倒影拉長延伸到近處海浪上
+            float refSz = cityRefDir.z * 0.15;
             vec4 cityReflection = vec4(0.0);
             
-            // 海面反射地平線景物只限於遠景範圍，避免近處水浪因法線扭曲產生噪點粒子
-            float skylineFade = smoothstep(200.0, 800.0, dist);
+            // 海面反射地平線景物延伸至近景，讓海浪能確實反射到城市燈光
+            float skylineFade = smoothstep(0.0, 400.0, dist);
+            
+            skyReflection = mix(skyReflection, deepWater * 0.5, groundBlend);
             
             // 只有當反射射線打中建築物高度時，才採樣城市光源
             if (refSz > 0.0 && refSz < 0.1 && skylineFade > 0.0) {
@@ -341,7 +354,7 @@ uniform vec3 topRGB;
                 
                 // 波光粼粼的閃爍雜訊 (在波浪尖端產生微小晶瑩亮點)
                 float glintNoise = hash(floor(vWorldPos.xy * 100.0) + time * 3.0); 
-                specular *= (0.3 + glintNoise * 0.4); // 整體降低閃爍晶瑩感
+                specular *= (0.5 + glintNoise * 2.0); // 稍微提升閃爍晶瑩感
                 
                 // 計算視線與光源方位的夾角遮罩，強制切除因為海浪法線過度扭曲而往左右兩側亂噴的光斑
                 // 稍微放寬至 40 次方，以免光芒過窄顯得不自然
