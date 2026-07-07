@@ -16,6 +16,14 @@ function updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnable
     if (window.skyMaterial.uniforms.dpr) {
       window.skyMaterial.uniforms.dpr.value = window.RENDER_DPR || Math.min(window.devicePixelRatio || 1.0, 1.5);
     }
+    
+    // Smoothly transition atmosphereBlend
+    const targetBlend = atmosphereEnabled ? 1.0 : 0.0;
+    if (typeof window.skyMaterial.uniforms.atmosphereBlend === 'undefined') {
+      window.skyMaterial.uniforms.atmosphereBlend = { value: targetBlend };
+    } else {
+      window.skyMaterial.uniforms.atmosphereBlend.value += (targetBlend - window.skyMaterial.uniforms.atmosphereBlend.value) * 0.05;
+    }
   }
 }
 

@@ -733,7 +733,13 @@ window.setupSun = function () {
             vUv = uv; 
             vec2 c = uv * 2.0 - 1.0; 
              
-            vec3 horiz = eqToHoriz * celestialPos; 
+            vec3 trueHoriz = eqToHoriz * celestialPos; 
+            float trueAltCenter = asin(trueHoriz.z);
+            float hCenter = degrees(trueAltCenter);
+            float rArcMinCenter = 1.02 / tan(radians(max(hCenter, -2.0) + 10.3 / (max(hCenter, -2.0) + 5.11)));
+            float appAltCenter = trueAltCenter + radians(rArcMinCenter / 60.0);
+            float azCenter = atan(trueHoriz.y, trueHoriz.x);
+            vec3 horiz = vec3(cos(appAltCenter)*cos(azCenter), cos(appAltCenter)*sin(azCenter), sin(appAltCenter));
              
             float lx = sin(lookAz) * cos(lookEl); 
             float ly = cos(lookAz) * cos(lookEl); 
@@ -784,19 +790,39 @@ window.setupSun = function () {
  
         void main() { 
             vec2 c = vUv * 2.0 - 1.0; 
-            float r = length(c); 
-            if (r > 1.0) discard; 
             
-            // Per-pixel altitude calculation to prevent large triangle interpolation artifacts
-            vec3 horiz = eqToHoriz * celestialPos; 
+            vec3 trueHoriz = eqToHoriz * celestialPos; 
+            float trueAltCenter = asin(trueHoriz.z);
+            float hCenter = degrees(trueAltCenter);
+            float rArcMinCenter = 1.02 / tan(radians(max(hCenter, -2.0) + 10.3 / (max(hCenter, -2.0) + 5.11)));
+            float appAltCenter = trueAltCenter + radians(rArcMinCenter / 60.0);
+            float azCenter = atan(trueHoriz.y, trueHoriz.x);
+            vec3 appHoriz = vec3(cos(appAltCenter)*cos(azCenter), cos(appAltCenter)*sin(azCenter), sin(appAltCenter));
+            
             vec3 up = vec3(0.0, 0.0, 1.0); 
-            vec3 rawRight = cross(horiz, up); 
+            vec3 rawRight = cross(appHoriz, up); 
             vec3 right = length(rawRight) < 0.001 ? vec3(1.0, 0.0, 0.0) : normalize(rawRight); 
-            vec3 top = normalize(cross(right, horiz)); 
+            vec3 top = normalize(cross(right, appHoriz)); 
             float angularSize = 2.5;  
-            vec3 dir = normalize(horiz + (c.x * right + c.y * top) * (angularSize / 2.0)); 
-            float vAltitude = dir.z;
             
+            // Apparent direction of the pixel
+            vec3 appDir = normalize(appHoriz + (c.x * right + c.y * top) * (angularSize / 2.0)); 
+            
+            // Inverse refraction to find true direction
+            float appAlt = asin(appDir.z);
+            float a_deg = degrees(appAlt);
+            float rArcMin = 1.0 / tan(radians(max(a_deg, -2.0) + 7.31 / (max(a_deg, -2.0) + 4.4)));
+            float trueAlt = appAlt - radians(rArcMin / 60.0);
+            float pixelAz = atan(appDir.y, appDir.x);
+            vec3 trueDir = vec3(cos(trueAlt)*cos(pixelAz), cos(trueAlt)*sin(pixelAz), sin(trueAlt));
+            
+            // Use angular distance to true center to form the perfectly squashed shape
+            float r = acos(clamp(dot(trueDir, trueHoriz), -1.0, 1.0)) / radians(angularSize / 2.0);
+            if (r > 1.0) discard;
+            
+            float vAltitude = appAlt;
+            
+            // calculate angle for rays (using c is fine since rays emanate from center)
             float angle = atan(c.y, c.x);
              
             // Core sun disk 
