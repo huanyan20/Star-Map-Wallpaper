@@ -22,7 +22,7 @@ uniform vec3 topRGB;
             return d > 0.5 ? 1.0 - d : d;
         }
         
-        vec4 getProceduralSkyline(float rawU, float sz) {
+        vec4 getProceduralSkyline(float rawU, float sz, vec3 viewDir, vec3 sunPosition) {
             vec4 result = vec4(0.0);
             float mountAlt = 0.0;
             mountAlt += (sin(rawU * 3.14159265 * 24.0) * 0.5 + 0.5) * 0.015;
@@ -73,6 +73,17 @@ uniform vec3 topRGB;
                 if (sz > 0.058 && sz < 0.062 && uDist85 < 0.001) {
                     float blink = step(0.5, sin(time * 2.0));
                     color += vec3(1.0, 0.2, 0.2) * 1.8 * blink;
+                }
+                
+                // Sunset Rim Light (Backlight on skyline silhouette)
+                float sunsetRim = exp(-pow(sunPosition.z * 15.0, 2.0)); 
+                if (sunsetRim > 0.01) {
+                    float rimAlpha = smoothstep(0.0, 0.5, baseAaAlpha) * smoothstep(1.0, 0.5, baseAaAlpha); 
+                    vec2 sunAz = normalize(sunPosition.xy);
+                    vec2 viewAz = normalize(viewDir.xy);
+                    float sunAlignment = dot(viewAz, sunAz);
+                    float rimIntensity = smoothstep(0.8, 1.0, sunAlignment) * sunsetRim * rimAlpha;
+                    color += vec3(1.0, 0.4, 0.1) * rimIntensity * 0.1;
                 }
                 
                 result = vec4(color, baseAaAlpha);
@@ -137,7 +148,11 @@ uniform vec3 topRGB;
                 // Analytical Sun Glow (Stellarium style)
                 float sunCosTheta = dot(viewDir, sunVec);
                 float sunPhase = pow(max(0.0, sunCosTheta), 12.0) * 0.6 + pow(max(0.0, sunCosTheta), 4.0) * 0.15;
-                float sunVisibility = smoothstep(-0.08, 0.0, sunVec.z) * atmosphereBlend;
+                
+                // Attenuate sunset glow when sun is near horizon (since it is naturally too bright)
+                float sunsetDim = exp(-pow(sunVec.z * 12.0, 2.0)); 
+                float sunVisibility = smoothstep(-0.08, 0.0, sunVec.z) * atmosphereBlend * mix(1.0, 0.4, sunsetDim);
+                
                 vec3 sunGlowColor = mix(vec3(1.0, 0.25, 0.05), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.15, sunVec.z));
                 color += sunGlowColor * sunPhase * sunVisibility;
                 
@@ -183,7 +198,7 @@ uniform vec3 topRGB;
                 
                 // Skyline overlay
                 float rawU = atan(vy, vx) / (2.0 * 3.1415926535) + 0.5;
-                vec4 cityTex = getProceduralSkyline(rawU, sz);
+                vec4 cityTex = getProceduralSkyline(rawU, sz, viewDir, sunPosition);
                 if (cityTex.a > 0.0) {
                     color = mix(color, cityTex.rgb, cityTex.a); 
                 }

@@ -103,6 +103,15 @@ export function getFrameState(ts, now) {
     bgCache.midRGB = lerp3(lerp3(nightMid, twilightMid, t), dayMid, t2);
     bgCache.horRGB = lerp3(lerp3(nightHor, twilightHor, t), dayHor, t2);
 
+    // Sunset warm color blending (peaks around 0 degrees altitude)
+    const sunsetHor = [225, 120, 65]; 
+    const sunsetMid = [180, 100, 80];
+    const sunsetWeight = Math.exp(-Math.pow(bgSunAlt / 8, 2)) * 0.25;
+    if (sunsetWeight > 0.01) {
+      bgCache.horRGB = lerp3(bgCache.horRGB, sunsetHor, sunsetWeight);
+      bgCache.midRGB = lerp3(bgCache.midRGB, sunsetMid, sunsetWeight * 0.4);
+    }
+
     bgCache.t = tR;
     bgCache.t2 = t2R;
     bgCache.hy = hyR;

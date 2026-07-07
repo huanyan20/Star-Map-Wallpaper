@@ -825,8 +825,8 @@ window.setupSun = function () {
             // calculate angle for rays (using c is fine since rays emanate from center)
             float angle = atan(c.y, c.x);
              
-            // Core sun disk 
-            float coreRadius = 0.007; 
+            // Core sun disk (真實太陽角半徑大約 0.265 度，此處 r=1.0 對應 1.25 度，所以核心應為 0.21)
+            float coreRadius = 0.21; 
              
             // Color shifts towards deep orange/red near horizon (Rayleigh scattering)
             float altFactor = smoothstep(-0.05, 0.15, vAltitude); 
@@ -849,13 +849,13 @@ window.setupSun = function () {
             // 將星芒亮度降到幾乎只有點綴，避免干擾物理大氣
             float rays = rayPattern * rayFade * rayStrength * 0.05; // 從0.25 降到 0.05
              
-            // 確保核心維持高亮，且外側有柔和過渡
-            vec3 finalColor = mix(haloColor, vec3(1.0, 1.0, 1.0), core); 
+            // 確保核心維持高亮且有夕陽橘紅色彩，外側有柔和過渡
+            vec3 finalColor = mix(haloColor, sunColor, core); 
             finalColor += haloColor * rays;
             float alpha = min(1.0, core + halo + rays);
             
-            // 把太陽材質透明度再壓低一點點，避免遮擋背景真實天空散射背後的星
-            alpha *= 0.6;
+            // 讓太陽本體(core)保持完全不透明(1.0)，讓光暈部分半透明，這樣才能看到清楚的太陽球體
+            alpha = mix(alpha * 0.6, 1.0, core);
              
             // Soft horizon fade out 
             float horizonFade = smoothstep(-0.04, 0.02, vAltitude); 

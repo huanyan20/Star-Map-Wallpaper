@@ -105,7 +105,7 @@ export function drawHorizonGlow(ctx, sunAlt_deg, sunAz_rad, state, CX, W, H) {
     ctx.globalCompositeOperation = 'lighter';
 
     if (dayGlowT > 0) {
-      ctx.globalAlpha = dayGlowT;
+      ctx.globalAlpha = dayGlowT * 0.3;
       const radius = W * 1.2;
       const dGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius);
       dGrad.addColorStop(0, 'rgba(255,255,255,0.7)');
@@ -116,7 +116,7 @@ export function drawHorizonGlow(ctx, sunAlt_deg, sunAz_rad, state, CX, W, H) {
     }
 
     if (glowT > 0) {
-      ctx.globalAlpha = glowT;
+      ctx.globalAlpha = glowT * 0.3;
       const radius = W * 1.5;
       const sGrad = ctx.createRadialGradient(sx, sy + 30, 0, sx, sy + 30, radius);
       const altShift = Math.max(0, Math.min(1, (sunAlt_deg + 4) / 8));
