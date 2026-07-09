@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { skyRuntime } from './core/runtime.js';
 
-window.THREE = THREE;
+skyRuntime.set('THREE', THREE);
 
 export async function loadAstronomicalData() {
   const [{ STARS, CON_NAMES }, { REAL_STARS }, { CONSTELLATION_SEGMENTS }] = await Promise.all([
@@ -9,8 +10,8 @@ export async function loadAstronomicalData() {
     import('./data/constellations_data.js')
   ]);
 
-  window.STARS = STARS;
-  window.CON_NAMES = CON_NAMES;
-  window.REAL_STARS = REAL_STARS;
-  window.CONSTELLATION_SEGMENTS = CONSTELLATION_SEGMENTS;
+  skyRuntime.set('STARS', STARS);
+  skyRuntime.set('CON_NAMES', CON_NAMES);
+  skyRuntime.set('REAL_STARS', REAL_STARS);
+  skyRuntime.set('CONSTELLATION_SEGMENTS', CONSTELLATION_SEGMENTS);
 }

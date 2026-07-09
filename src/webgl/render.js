@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import { LAT_RAD } from '../vendor/astronomy_engine.js';
 import { syncAdditiveSkyMaterials } from './additiveSkyMaterial.js';
 
+const _eqToHoriz = new THREE.Matrix3();
+const _currentLightDir = new THREE.Vector3(0, 0, 1);
+const _lightColor = new THREE.Vector3(0.8, 0.9, 1.0);
+const _physicalSunPos = new THREE.Vector3(0, 0, -1);
+const _sunPos = new THREE.Vector3();
+const _moonPos = new THREE.Vector3();
+const _celestialPos = new THREE.Vector3();
+
 function updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnabled) {
   if (window.skyMaterial && topRGB && midRGB && horRGB) {
     window.skyMaterial.uniforms.topRGB.value.set(topRGB[0] / 255, topRGB[1] / 255, topRGB[2] / 255);
@@ -28,30 +36,26 @@ function updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnable
 }
 
 function updateSunMoonUniforms(sunEqPos, moonEqPos, m, ts, atmosphereEnabled) {
-  let currentLightDir = new THREE.Vector3(0, 0, 1);
+  _currentLightDir.set(0, 0, 1);
   let currentLightIntensity = 0.0;
-  let lightColor = new THREE.Vector3(0.8, 0.9, 1.0);
-  let physicalSunPos = new THREE.Vector3(0, 0, -1);
+  _lightColor.set(0.8, 0.9, 1.0);
+  _physicalSunPos.set(0, 0, -1);
 
   if (sunEqPos) {
-    const sunPos = new THREE.Vector3(
-      sunEqPos.x,
-      sunEqPos.y,
-      sunEqPos.z
-    );
-    const celestialPos = sunPos.clone();
+    _sunPos.set(sunEqPos.x, sunEqPos.y, sunEqPos.z);
+    _celestialPos.copy(_sunPos);
     
-    sunPos.applyMatrix3(m);
-    physicalSunPos.copy(sunPos).normalize();
+    _sunPos.applyMatrix3(m);
+    _physicalSunPos.copy(_sunPos).normalize();
     
-    if (atmosphereEnabled && sunPos.z > -0.05) {
-      currentLightDir = sunPos.normalize();
-      currentLightIntensity = Math.min(1.0, (sunPos.z + 0.05) * 20.0);
-      lightColor.set(1.0, 0.9, 0.8);
+    if (atmosphereEnabled && _sunPos.z > -0.05) {
+      _currentLightDir.copy(_sunPos).normalize();
+      currentLightIntensity = Math.min(1.0, (_sunPos.z + 0.05) * 20.0);
+      _lightColor.set(1.0, 0.9, 0.8);
     }
 
     if (window.sunMesh) {
-      window.sunMaterial.uniforms.celestialPos.value.copy(celestialPos);
+      window.sunMaterial.uniforms.celestialPos.value.copy(_celestialPos);
       window.sunMaterial.uniforms.eqToHoriz.value.copy(m);
       window.sunMaterial.uniforms.lookAz.value = window.lookAz;
       window.sunMaterial.uniforms.lookEl.value = window.lookEl;
@@ -70,25 +74,21 @@ function updateSunMoonUniforms(sunEqPos, moonEqPos, m, ts, atmosphereEnabled) {
   }
 
   if (currentLightIntensity < 0.5 && moonEqPos) {
-    const moonPos = new THREE.Vector3(
-      moonEqPos.x,
-      moonEqPos.y,
-      moonEqPos.z
-    );
-    const celestialPos = moonPos.clone();
-    moonPos.applyMatrix3(m);
+    _moonPos.set(moonEqPos.x, moonEqPos.y, moonEqPos.z);
+    _celestialPos.copy(_moonPos);
+    _moonPos.applyMatrix3(m);
     
-    if (moonPos.z > 0.0) {
-      const moonInt = Math.min(1.0, moonPos.z * 10.0) * 0.8;
+    if (_moonPos.z > 0.0) {
+      const moonInt = Math.min(1.0, _moonPos.z * 10.0) * 0.8;
       if (moonInt > currentLightIntensity) {
-        currentLightDir = moonPos.normalize();
+        _currentLightDir.copy(_moonPos).normalize();
         currentLightIntensity = moonInt;
-        lightColor.set(0.8, 0.9, 1.0);
+        _lightColor.set(0.8, 0.9, 1.0);
       }
     }
 
     if (window.moonMesh) {
-      window.moonMaterial.uniforms.celestialPos.value.copy(celestialPos);
+      window.moonMaterial.uniforms.celestialPos.value.copy(_celestialPos);
       if (sunEqPos) {
         window.moonMaterial.uniforms.sunPos.value.set(
           sunEqPos.x,
@@ -103,7 +103,7 @@ function updateSunMoonUniforms(sunEqPos, moonEqPos, m, ts, atmosphereEnabled) {
     }
   }
 
-  return { currentLightDir, currentLightIntensity, lightColor, physicalSunPos };
+  return { currentLightDir: _currentLightDir, currentLightIntensity, lightColor: _lightColor, physicalSunPos: _physicalSunPos };
 }
 
 function updateLightUniformsForSkyOcean(topRGB, midRGB, horRGB, ts, lights) {
@@ -186,8 +186,7 @@ function renderWebGL(fState, screenH, labels) {
   const sinLST = Math.sin(lst_rad);
   const cosLST = Math.cos(lst_rad);
 
-  const m = new THREE.Matrix3();
-  m.set(
+  _eqToHoriz.set(
     -sinLST,
     cosLST,
     0,
@@ -200,18 +199,20 @@ function renderWebGL(fState, screenH, labels) {
   );
 
   syncAdditiveSkyMaterials({
-    eqToHoriz: m,
+    eqToHoriz: _eqToHoriz,
     lookAz: window.lookAz,
     lookEl: window.lookEl,
     focalLen: window.focalLen(),
     time: ts / 1000.0,
     starVisibility: typeof starVisibility !== 'undefined' ? starVisibility : 1.0,
     dpr: window.RENDER_DPR || Math.min(window.devicePixelRatio || 1.0, 1.5),
+    hFOV: window.hFOV,
+    currentFov: window.hFOV,
   });
 
   updateSkyOceanUniforms(topRGB, midRGB, horRGB, hy, ts, atmosphereEnabled);
   
-  const lights = updateSunMoonUniforms(sunEqPos, moonEqPos, m, ts, atmosphereEnabled);
+  const lights = updateSunMoonUniforms(sunEqPos, moonEqPos, _eqToHoriz, ts, atmosphereEnabled);
   
   updateLightUniformsForSkyOcean(topRGB, midRGB, horRGB, ts, lights);
   

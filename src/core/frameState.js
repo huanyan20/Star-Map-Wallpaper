@@ -87,29 +87,41 @@ export function getFrameState(ts, now) {
   const hyR = Math.round(hy);
 
   if (bgCache.t !== tR || bgCache.t2 !== t2R || bgCache.hy !== hyR) {
-    const nightTop = [8, 11, 20];
+    // Deep night (lower saturation, darker to increase star contrast)
+    const nightTop = [2, 4, 8];
+    const nightMid = [5, 10, 18];
+    const nightHor = [12, 16, 24];
+
     const twilightTop = [8, 18, 52];
-    const dayTop = [30, 100, 200];
-
-    const nightMid = [18, 22, 41];
     const twilightMid = [20, 35, 75];
-    const dayMid = [80, 140, 215];
-
-    const nightHor = [42, 31, 29];
     const twilightHor = [30, 60, 110];
+
+    const dayTop = [30, 100, 200];
+    const dayMid = [80, 140, 215];
     const dayHor = [150, 190, 230];
 
     bgCache.topRGB = lerp3(lerp3(nightTop, twilightTop, t), dayTop, t2);
     bgCache.midRGB = lerp3(lerp3(nightMid, twilightMid, t), dayMid, t2);
     bgCache.horRGB = lerp3(lerp3(nightHor, twilightHor, t), dayHor, t2);
 
-    // Sunset warm color blending (peaks around 0 degrees altitude)
-    const sunsetHor = [225, 120, 65]; 
-    const sunsetMid = [180, 100, 80];
-    const sunsetWeight = Math.exp(-Math.pow(bgSunAlt / 8, 2)) * 0.25;
-    if (sunsetWeight > 0.01) {
-      bgCache.horRGB = lerp3(bgCache.horRGB, sunsetHor, sunsetWeight);
-      bgCache.midRGB = lerp3(bgCache.midRGB, sunsetMid, sunsetWeight * 0.4);
+    // Color Grading: Morning (Cyan/Gold) vs Evening (Orange/Pink)
+    const sunsetWeight = Math.exp(-Math.pow(bgSunAlt / 8, 2)) * 0.85;
+    if (sunsetWeight > 0.01 && astroCache.sunAltAz) {
+      const isMorning = astroCache.sunAltAz.az < Math.PI;
+      
+      if (isMorning) {
+        // Morning: Cyan & Gold
+        const sunriseHor = [255, 220, 120]; // Gold
+        const sunriseMid = [100, 180, 210]; // Cyan/Blue
+        bgCache.horRGB = lerp3(bgCache.horRGB, sunriseHor, sunsetWeight);
+        bgCache.midRGB = lerp3(bgCache.midRGB, sunriseMid, sunsetWeight * 0.6);
+      } else {
+        // Evening: Orange & Pink
+        const sunsetHor = [255, 110, 130]; // Pink/Orange
+        const sunsetMid = [160, 70, 130];  // Magenta
+        bgCache.horRGB = lerp3(bgCache.horRGB, sunsetHor, sunsetWeight);
+        bgCache.midRGB = lerp3(bgCache.midRGB, sunsetMid, sunsetWeight * 0.6);
+      }
     }
 
     bgCache.t = tR;

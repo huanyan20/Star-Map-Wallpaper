@@ -82,6 +82,7 @@ export function setupNebulas(scene) {
         const fragmentShader = `
           uniform sampler2D tDiffuse;
           uniform float starVisibility;
+          uniform float uBloomLayerNebula;
           varying vec2 vUv;
           varying float vHorizonFade;
           void main() {
@@ -91,7 +92,7 @@ export function setupNebulas(scene) {
             // This works correctly with AdditiveBlending without needing a real alpha channel.
             float lum = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
             float alpha = lum * vHorizonFade * starVisibility;
-            gl_FragColor = vec4(texColor.rgb * alpha, alpha);
+            gl_FragColor = vec4(texColor.rgb * alpha, alpha * uBloomLayerNebula);
           }
         `;
 
@@ -106,7 +107,8 @@ export function setupNebulas(scene) {
             lookEl:         { value: 0 },
             focalLen:       { value: 500 },
             time:           { value: 0 },
-            dpr:            { value: 1.0 }
+            dpr:            { value: 1.0 },
+            uBloomLayerNebula: { value: window.bloomLayers ? window.bloomLayers.nebula : 1.2 }
           },
           transparent: true,
           depthWrite: false,

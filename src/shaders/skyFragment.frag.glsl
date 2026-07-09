@@ -134,93 +134,81 @@ uniform vec3 topRGB;
             
             vec3 finalColor;
             
-            if (sz >= -0.015) { 
-                vec3 sunVec = normalize(sunPosition);
-                
-                // Keep the sky base color anchored to the original gradient tones.
-                vec3 baseGrad = mix(midRGB, topRGB, smoothstep(0.0, 0.5, sz));
-                baseGrad = mix(horRGB, baseGrad, smoothstep(-0.015, 0.1, sz));
-                
-                // Push the overall sky toward a cooler, less green tone
-                vec3 skyTint = mix(vec3(1.00, 0.88, 0.84), vec3(0.82, 0.90, 1.04), smoothstep(-0.02, 0.35, sz));
-                vec3 color = baseGrad * skyTint;
-                
-                // Analytical Sun Glow (Stellarium style)
-                float sunCosTheta = dot(viewDir, sunVec);
-                float sunPhase = pow(max(0.0, sunCosTheta), 12.0) * 0.6 + pow(max(0.0, sunCosTheta), 4.0) * 0.15;
-                
-                // Attenuate sunset glow when sun is near horizon (since it is naturally too bright)
-                float sunsetDim = exp(-pow(sunVec.z * 12.0, 2.0)); 
-                float sunVisibility = smoothstep(-0.20, 0.0, sunVec.z) * atmosphereBlend * mix(1.0, 0.4, sunsetDim);
-                
-                vec3 sunGlowColor = mix(vec3(1.0, 0.25, 0.05), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.15, sunVec.z));
-                color += sunGlowColor * sunPhase * sunVisibility;
-                
-                // Add moonlight scattering if moon is the dominant light source
-                if (lightIntensity > 0.0 && dot(lightDir, sunPosition) < 0.9) {
-                    float moonGlow = max(0.0, dot(viewDir, lightDir));
-                    vec3 moonColor = vec3(0.5, 0.65, 0.85) * lightIntensity * 0.1 * pow(moonGlow, 5.0) * atmosphereBlend;
-                    color += moonColor;
-                }
-                
-                // ------------------
-                // Local Light Pollution (Kaohsiung Skyglow - Bortle 8/9)
-                // ------------------
-                // Based on Falchi et al. World Atlas of Artificial Night Sky Brightness
-                float nightFactor = smoothstep(-0.05, -0.2, sunPosition.z);
-                if (nightFactor > 0.0) {
-                    // Kaohsiung Geography: City expands East/North, Sea is West/SouthWest.
-                    // Azimuth ~ 60 deg (ENE) for city core. vx = East, vy = North.
-                    vec2 cityDir = normalize(vec2(0.866, 0.5)); 
-                    vec2 viewAz = normalize(vec2(vx, vy));
-                    
-                    // Directional factor: 1.0 towards city, 0.0 towards sea
-                    float cityFactor = dot(viewAz, cityDir) * 0.5 + 0.5;
-                    cityFactor = smoothstep(0.1, 0.9, cityFactor); // Boost contrast between city/sea
-                    
-                    // Altitude decay (Garstang Model): peaking slightly above horizon
-                    float alt = max(sz, 0.0);
-                    float horizonGlow = exp(-alt * 6.0) * (1.0 - exp(-alt * 20.0));
-                    float zenithGlow = exp(-alt * 1.5) * 0.15;
-                    float glowDecay = horizonGlow * 1.5 + zenithGlow;
-                    
-                    // Sea side retains ~20% of the glow due to backscattering
-                    float glowIntensity = mix(0.2, 1.0, cityFactor) * glowDecay;
-                    
-                    // High-pressure Sodium (HPS) and LED mixture (typical modern Kaohsiung)
-                    // Color shifts slightly redder near the horizon and more neutral at zenith
-                    vec3 baseGlowColor = vec3(1.0, 0.55, 0.25);
-                    vec3 zenithGlowColor = vec3(0.8, 0.7, 0.6);
-                    vec3 glowColor = mix(zenithGlowColor, baseGlowColor, exp(-alt * 3.0)) * 0.06;
-                    
-                    color += glowColor * glowIntensity * nightFactor;
-                }
-                
-                // Skyline overlay
-                float rawU = atan(vy, vx) / (2.0 * 3.1415926535) + 0.5;
-                vec4 cityTex = getProceduralSkyline(rawU, sz, viewDir, sunPosition);
-                if (cityTex.a > 0.0) {
-                    color = mix(color, cityTex.rgb, cityTex.a); 
-                }
-                
-                finalColor = color;
-            } else {
-                // Ocean Base Background
-                vec3 sunVec = normalize(sunPosition);
-                vec3 viewHoriz = normalize(vec3(vx, vy, 0.0));
-                
-                // Analytical sun reflection on the base ocean layer
-                float sunCosTheta = dot(viewHoriz, sunVec);
-                float sunPhase = pow(max(0.0, sunCosTheta), 8.0) * 0.3;
-                float sunVisibility = smoothstep(-0.08, 0.0, sunVec.z) * atmosphereBlend;
-                vec3 sunGlowColor = mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.1, sunVec.z));
-                vec3 physOcean = sunGlowColor * sunPhase * sunVisibility * 1.5;
-                
-                vec3 nightOcean = horRGB * 0.2; // Darker version of horizon color for sea base
-                vec3 blendedOcean = mix(nightOcean, nightOcean + physOcean, atmosphereBlend);
-                
-                finalColor = blendedOcean * 0.15 + vec3(0.001, 0.002, 0.005);
+            vec3 sunVec = normalize(sunPosition);
+            
+            // Keep the sky base color anchored to the original gradient tones.
+            vec3 baseGrad = mix(midRGB, topRGB, smoothstep(0.0, 0.5, sz));
+            baseGrad = mix(horRGB, baseGrad, smoothstep(-0.015, 0.1, sz));
+            
+            // Push the overall sky toward a cooler, less green tone
+            vec3 skyTint = mix(vec3(1.00, 0.88, 0.84), vec3(0.82, 0.90, 1.04), smoothstep(-0.02, 0.35, sz));
+            vec3 color = baseGrad * skyTint;
+            
+            // Analytical Sun Glow (Stellarium style)
+            float sunCosTheta = dot(viewDir, sunVec);
+            float sunPhase = pow(max(0.0, sunCosTheta), 12.0) * 0.6 + pow(max(0.0, sunCosTheta), 4.0) * 0.15;
+            
+            // Attenuate sunset glow when sun is near horizon (since it is naturally too bright)
+            float sunsetDim = exp(-pow(sunVec.z * 12.0, 2.0)); 
+            float sunVisibility = smoothstep(-0.20, 0.0, sunVec.z) * atmosphereBlend * mix(1.0, 0.4, sunsetDim);
+            
+            vec3 sunGlowColor = mix(vec3(1.0, 0.25, 0.05), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.15, sunVec.z));
+            color += sunGlowColor * sunPhase * sunVisibility;
+            
+            // Add moonlight scattering if moon is the dominant light source
+            if (lightIntensity > 0.0 && dot(lightDir, sunPosition) < 0.9) {
+                float moonGlow = max(0.0, dot(viewDir, lightDir));
+                vec3 moonColor = vec3(0.5, 0.65, 0.85) * lightIntensity * 0.1 * pow(moonGlow, 5.0) * atmosphereBlend;
+                color += moonColor;
             }
+            
+            // Local Light Pollution (Kaohsiung Skyglow - Bortle 8/9)
+            float nightFactor = smoothstep(-0.05, -0.2, sunPosition.z);
+            if (nightFactor > 0.0) {
+                vec2 cityDir = normalize(vec2(0.866, 0.5)); 
+                vec2 viewAz = normalize(vec2(vx, vy));
+                
+                float cityFactor = dot(viewAz, cityDir) * 0.5 + 0.5;
+                cityFactor = smoothstep(0.1, 0.9, cityFactor);
+                
+                float alt = max(sz, 0.0);
+                float horizonGlow = exp(-alt * 6.0) * (1.0 - exp(-alt * 20.0));
+                float zenithGlow = exp(-alt * 1.5) * 0.15;
+                float glowDecay = horizonGlow * 1.5 + zenithGlow;
+                
+                float glowIntensity = mix(0.2, 1.0, cityFactor) * glowDecay;
+                
+                vec3 baseGlowColor = vec3(1.0, 0.55, 0.25);
+                vec3 zenithGlowColor = vec3(0.8, 0.7, 0.6);
+                vec3 glowColor = mix(zenithGlowColor, baseGlowColor, exp(-alt * 3.0)) * 0.06;
+                
+                color += glowColor * glowIntensity * nightFactor;
+            }
+            
+            // Skyline overlay
+            float rawU = atan(vy, vx) / (2.0 * 3.1415926535) + 0.5;
+            vec4 cityTex = getProceduralSkyline(rawU, sz, viewDir, sunPosition);
+            if (cityTex.a > 0.0) {
+                color = mix(color, cityTex.rgb, cityTex.a); 
+            }
+            
+            // Smooth transition to Ocean Base Background to eliminate the hard horizon cut under transparent ocean
+            float oceanBaseFade = smoothstep(0.0, -0.05, sz);
+            if (oceanBaseFade > 0.0) {
+                vec3 viewHoriz = normalize(vec3(vx, vy, 0.0));
+                float baseSunCosTheta = dot(viewHoriz, sunVec);
+                float baseSunPhase = pow(max(0.0, baseSunCosTheta), 8.0) * 0.3;
+                vec3 baseSunGlowColor = mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.95, 0.85), smoothstep(-0.05, 0.1, sunVec.z));
+                vec3 physOcean = baseSunGlowColor * baseSunPhase * sunVisibility * 1.5;
+                
+                vec3 nightOcean = horRGB * 0.2; 
+                vec3 blendedOcean = mix(nightOcean, nightOcean + physOcean, atmosphereBlend);
+                vec3 oceanBaseColor = blendedOcean * 0.15 + vec3(0.001, 0.002, 0.005);
+                
+                color = mix(color, oceanBaseColor, oceanBaseFade);
+            }
+            
+            finalColor = color;
             float noiseSample = getDitherNoise(gl_FragCoord.xy);
             float horizonDitherWeight = smoothstep(-0.02, 0.06, sz) * atmosphereBlend;
             float ditherStrength = mix(0.0, 0.0022, horizonDitherWeight);

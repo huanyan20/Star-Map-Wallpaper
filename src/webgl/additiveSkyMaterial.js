@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const additiveSkyMaterials = [];
 
 export function createAdditiveSkyUniforms(overrides = {}) {
+  const bl = window.bloomLayers || { brightStar: 1.5, nebula: 1.2, milkyway: 0.8 };
   return {
     eqToHoriz: { value: new THREE.Matrix3() },
     lookAz: { value: 0 },
@@ -11,6 +12,11 @@ export function createAdditiveSkyUniforms(overrides = {}) {
     time: { value: 0 },
     starVisibility: { value: 1.0 },
     dpr: { value: 1.0 },
+    hFOV: { value: Math.PI / 2.0 },
+    currentFov: { value: Math.PI / 2.0 },
+    uBloomLayerBrightStar: { value: bl.brightStar },
+    uBloomLayerNebula: { value: bl.nebula },
+    uBloomLayerMilkyWay: { value: bl.milkyway },
     ...overrides,
   };
 }
@@ -62,6 +68,19 @@ export function syncAdditiveSkyMaterials(frameUniforms = {}) {
     }
     if (material.uniforms.dpr && typeof frameUniforms.dpr !== 'undefined') {
       material.uniforms.dpr.value = frameUniforms.dpr;
+    }
+    if (material.uniforms.hFOV && typeof frameUniforms.hFOV !== 'undefined') {
+      material.uniforms.hFOV.value = frameUniforms.hFOV;
+    }
+    if (material.uniforms.currentFov && typeof frameUniforms.currentFov !== 'undefined') {
+      material.uniforms.currentFov.value = frameUniforms.currentFov;
+    }
+    
+    // Sync layered bloom config if available
+    if (window.bloomLayers) {
+      if (material.uniforms.uBloomLayerBrightStar) material.uniforms.uBloomLayerBrightStar.value = window.bloomLayers.brightStar;
+      if (material.uniforms.uBloomLayerNebula) material.uniforms.uBloomLayerNebula.value = window.bloomLayers.nebula;
+      if (material.uniforms.uBloomLayerMilkyWay) material.uniforms.uBloomLayerMilkyWay.value = window.bloomLayers.milkyway;
     }
   }
 

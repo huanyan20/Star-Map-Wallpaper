@@ -11,34 +11,53 @@ const LABEL_COLORS = {
   zenith: [0.51, 0.67, 1.0],
 };
 
-let _starPosCache = {};
+let _starPosPool = null;
+let _starPosPoolMap = null;
 
 export function buildStarPositionCache(lst_deg, state) {
-  _starPosCache = {};
-  state.screenPos.length = 0;
+  if (!_starPosPool && window.STARS) {
+    _starPosPool = window.STARS.map(star => ({ x: 0, y: 0, alt: 0, star, visible: false }));
+    _starPosPoolMap = new Map();
+    _starPosPool.forEach(p => {
+      if (p.star.cn) _starPosPoolMap.set(p.star.cn, p);
+    });
+  }
+
+  let screenPosCount = 0;
   for (let i = 0; i < 1024; i++) state.spatialHash[i].length = 0;
 
   const cellW = window.innerWidth / state.SH_COLS;
   const cellH = window.innerHeight / state.SH_ROWS;
 
-  for (const star of window.STARS) {
-    const rd = raDecToAltAz(star.ra, star.dec, lst_deg);
-    const p = altAzToXY(rd.alt, rd.az);
-    if (p) {
-      _starPosCache[star.cn] = { x: p.x, y: p.y, alt: rd.alt };
-      const posObj = { x: p.x, y: p.y, star };
-      state.screenPos.push(posObj);
+  if (_starPosPool) {
+    for (let i = 0; i < _starPosPool.length; i++) {
+      const pObj = _starPosPool[i];
+      const star = pObj.star;
+      const rd = raDecToAltAz(star.ra, star.dec, lst_deg);
+      const p = altAzToXY(rd.alt, rd.az);
+      
+      if (p) {
+        pObj.x = p.x;
+        pObj.y = p.y;
+        pObj.alt = rd.alt;
+        pObj.visible = true;
+        
+        state.screenPos[screenPosCount++] = pObj;
 
-      if (p.x >= 0 && p.x < window.innerWidth && p.y >= 0 && p.y < window.innerHeight) {
-        const gx = Math.floor(p.x / cellW);
-        const gy = Math.floor(p.y / cellH);
-        const idx = gy * state.SH_COLS + gx;
-        if (idx >= 0 && idx < 1024) {
-          state.spatialHash[idx].push(posObj);
+        if (p.x >= 0 && p.x < window.innerWidth && p.y >= 0 && p.y < window.innerHeight) {
+          const gx = Math.floor(p.x / cellW);
+          const gy = Math.floor(p.y / cellH);
+          const idx = gy * state.SH_COLS + gx;
+          if (idx >= 0 && idx < 1024) {
+            state.spatialHash[idx].push(pObj);
+          }
         }
+      } else {
+        pObj.visible = false;
       }
     }
   }
+  state.screenPos.length = screenPosCount;
 }
 
 export function drawBackground(ctx, fState, W, H) {
@@ -158,90 +177,7 @@ export function drawAtmosphericEffects(ctx, astro, W, H) {
 
   const sunP = altAzToXY(sunAltAz.alt, sunAltAz.az);
 
-  const zlVisibility =
-    Math.max(0, Math.min(1, (sunAlt_deg + 18) / 5)) *
-    Math.max(0, Math.min(1, (-5 - sunAlt_deg) / 5));
-  if (zlVisibility > 0 && moonInterference < 0.5) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const alphaScale = zlVisibility * (1 - moonInterference * 2);
-
-    const eps = (23.439 * Math.PI) / 180;
-    const lambda_sun = Math.atan2(
-      Math.sin(sRa) * Math.cos(eps) + Math.tan(sDec) * Math.sin(eps),
-      Math.cos(sRa),
-    );
-
-    for (const sign of [-1, 1]) {
-      const points = [];
-      for (let d = 5; d <= 90; d += 4) {
-        const lambda = lambda_sun + (sign * d * Math.PI) / 180;
-        let ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
-        const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
-
-        const ra_h = (((ra + 2 * Math.PI) % (2 * Math.PI)) * 12) / Math.PI;
-        const dec_deg = (dec * 180) / Math.PI;
-
-        const altAz = raDecToAltAz(ra_h, dec_deg, lst_deg);
-        if (altAz.alt < -0.1) continue;
-
-        const p = altAzToXY(altAz.alt, altAz.az);
-        if (p) points.push({ x: p.x, y: p.y, d });
-      }
-
-      if (points.length > 2) {
-        ctx.beginPath();
-        for (let i = 0; i < points.length; i++) {
-          const pt = points[i];
-          let dx = 0, dy = 0;
-          if (i < points.length - 1) {
-            dx = points[i + 1].x - pt.x;
-            dy = points[i + 1].y - pt.y;
-          } else {
-            dx = pt.x - points[i - 1].x;
-            dy = pt.y - points[i - 1].y;
-          }
-          const len = Math.hypot(dx, dy) || 1;
-          const nx = -dy / len;
-          const ny = dx / len;
-          const radius = W * 0.15 * (1 - pt.d / 100);
-          ctx.lineTo(pt.x + nx * radius, pt.y + ny * radius);
-        }
-        for (let i = points.length - 1; i >= 0; i--) {
-          const pt = points[i];
-          let dx = 0, dy = 0;
-          if (i > 0) {
-            dx = pt.x - points[i - 1].x;
-            dy = pt.y - points[i - 1].y;
-          } else {
-            dx = points[i + 1].x - pt.x;
-            dy = points[i + 1].y - pt.y;
-          }
-          const len = Math.hypot(dx, dy) || 1;
-          const nx = -dy / len;
-          const ny = dx / len;
-          const radius = W * 0.15 * (1 - pt.d / 100);
-          ctx.lineTo(pt.x - nx * radius, pt.y - ny * radius);
-        }
-        ctx.closePath();
-
-        const startP = points[0];
-        const endP = points[points.length - 1];
-        const grad = ctx.createLinearGradient(startP.x, startP.y, endP.x, endP.y);
-        grad.addColorStop(0, `rgba(235, 240, 255, ${0.1 * alphaScale})`);
-        grad.addColorStop(1, 'rgba(235, 240, 255, 0)');
-
-        ctx.shadowColor = `rgba(235, 240, 255, ${0.1 * alphaScale})`;
-        ctx.shadowBlur = 40;
-
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        ctx.shadowBlur = 0;
-      }
-    }
-    ctx.restore();
-  }
+  const zlVisibility = 0; // Disabled Zodiacal Light as it causes visual confusion
 
   if (moonInterference < 0.2) {
     const antiSunRa = (sunRaDec.ra + 12) % 24;
@@ -348,8 +284,8 @@ export function drawLabels2D(ctx, labels) {
 function addConstellationNameLabels(labels, starVisibility, state, CX, CY, W, H) {
   const centroids = {};
   for (const star of window.STARS) {
-    const c = _starPosCache[star.cn];
-    if (!c) continue;
+    const c = _starPosPoolMap ? _starPosPoolMap.get(star.cn) : null;
+    if (!c || !c.visible) continue;
     if (!centroids[star.con]) centroids[star.con] = { x: 0, y: 0, n: 0 };
     centroids[star.con].x += c.x;
     centroids[star.con].y += c.y;
@@ -408,6 +344,7 @@ function addStarNameLabels(labels, lst_deg, starVisibility, state) {
       baseline: 'middle',
       color: LABEL_COLORS.star,
       alpha: alpha,
+      mag: star.mag,
     });
   }
 }
@@ -471,6 +408,9 @@ function addZenithLabel(labels, state, W, H) {
 }
 
 function addAltAzGridLabels(labels, state, W, H) {
+  const fovOpacity = Math.max(0, Math.min(1, (state.hFOV - 0.4) / 0.5));
+  if (fovOpacity <= 0.01) return;
+
   for (let alt = 15; alt <= 90; alt += 15) {
     const pl = altAzToXY(toRad(alt), state.lookAz);
     if (pl && pl.x > 20 && pl.x < W - 20 && pl.y > 10 && pl.y < H - 10) {
@@ -482,7 +422,7 @@ function addAltAzGridLabels(labels, state, W, H) {
         align: 'left',
         baseline: 'middle',
         color: LABEL_COLORS.grid,
-        alpha: 0.38,
+        alpha: 0.38 * fovOpacity,
       });
     }
   }
@@ -497,13 +437,16 @@ function addAltAzGridLabels(labels, state, W, H) {
         align: 'center',
         baseline: 'middle',
         color: LABEL_COLORS.grid,
-        alpha: 0.3,
+        alpha: 0.3 * fovOpacity,
       });
     }
   }
 }
 
-function addEclipticLabel(labels, lst_deg, starVisibility, W, H) {
+function addEclipticLabel(labels, lst_deg, starVisibility, state, W, H) {
+  const fovOpacity = Math.max(0, Math.min(1, (state.hFOV - 0.4) / 0.5));
+  if (fovOpacity <= 0.01) return;
+
   const eps = (23.439 * Math.PI) / 180;
   const labelLambda = (90 * Math.PI) / 180;
   let raLabel = Math.atan2(Math.cos(eps) * Math.sin(labelLambda), Math.cos(labelLambda));
@@ -519,28 +462,107 @@ function addEclipticLabel(labels, lst_deg, starVisibility, W, H) {
       align: 'center',
       baseline: 'middle',
       color: LABEL_COLORS.ecliptic,
-      alpha: 0.6 * starVisibility,
+      alpha: 0.6 * starVisibility * fovOpacity,
     });
   }
 }
 
 export function buildWebGLLabels(lst_deg, starVisibility, state, CX, CY, W, H) {
-  const labels = [];
+  const candidates = [];
   if (starVisibility > 0) {
     if (window.toggles.grid) {
-      addZenithLabel(labels, state, W, H);
-      addAltAzGridLabels(labels, state, W, H);
+      addZenithLabel(candidates, state, W, H);
+      addAltAzGridLabels(candidates, state, W, H);
     }
-    if (window.toggles.ecliptic) addEclipticLabel(labels, lst_deg, starVisibility, W, H);
-    if (window.toggles.conNames) addConstellationNameLabels(labels, starVisibility, state, CX, CY, W, H);
-    addStarNameLabels(labels, lst_deg, starVisibility, state);
+    if (window.toggles.ecliptic) addEclipticLabel(candidates, lst_deg, starVisibility, state, W, H);
+    if (window.toggles.conNames) addConstellationNameLabels(candidates, starVisibility, state, CX, CY, W, H);
+    addStarNameLabels(candidates, lst_deg, starVisibility, state);
   } else {
     state.screenPos.length = 0;
     if (window.toggles.grid) {
-      addZenithLabel(labels, state, W, H);
-      addAltAzGridLabels(labels, state, W, H);
+      addZenithLabel(candidates, state, W, H);
+      addAltAzGridLabels(candidates, state, W, H);
     }
   }
-  addCardinalLabels(labels, W, H);
-  return labels;
+  addCardinalLabels(candidates, W, H);
+  
+  // Assign priorities
+  for (const lbl of candidates) {
+      if (!lbl.priority) {
+          if (lbl.color === LABEL_COLORS.cardinal || lbl.color === LABEL_COLORS.cardinalRed || lbl.color === LABEL_COLORS.zenith) {
+              lbl.priority = 1000;
+          } else if (lbl.color === LABEL_COLORS.con) {
+              lbl.priority = 500;
+          } else if (lbl.color === LABEL_COLORS.ecliptic) {
+              lbl.priority = 400;
+          } else if (lbl.color === LABEL_COLORS.star) {
+              lbl.priority = 300 - (lbl.mag || 0) * 10;
+          } else if (lbl.color === LABEL_COLORS.grid) {
+              lbl.priority = 100;
+          } else {
+              lbl.priority = 0;
+          }
+      }
+  }
+  
+  // Sort by priority (descending)
+  candidates.sort((a, b) => b.priority - a.priority);
+  
+  const finalLabels = [];
+  const occupiedBoxes = [];
+  
+  const checkCollision = (box1) => {
+      // Add a small margin
+      const margin = 2;
+      for (const box2 of occupiedBoxes) {
+          if (box1.xMax + margin < box2.xMin || 
+              box1.xMin - margin > box2.xMax || 
+              box1.yMax + margin < box2.yMin || 
+              box1.yMin - margin > box2.yMax) {
+              continue; // No collision
+          }
+          return true; // Collision
+      }
+      return false;
+  };
+  
+  for (const lbl of candidates) {
+      // Estimate width (approx 0.6 times size per char, varies by font but good enough)
+      const textLen = String(lbl.text || '').length;
+      const width = textLen * (lbl.size || 12) * 0.6;
+      const height = (lbl.size || 12) * 1.2;
+      
+      let xMin, xMax, yMin, yMax;
+      
+      if (lbl.align === 'center') {
+          xMin = lbl.x - width * 0.5;
+          xMax = lbl.x + width * 0.5;
+      } else if (lbl.align === 'right') {
+          xMin = lbl.x - width;
+          xMax = lbl.x;
+      } else { // left
+          xMin = lbl.x;
+          xMax = lbl.x + width;
+      }
+      
+      if (lbl.baseline === 'middle') {
+          yMin = lbl.y - height * 0.5;
+          yMax = lbl.y + height * 0.5;
+      } else if (lbl.baseline === 'bottom') {
+          yMin = lbl.y - height;
+          yMax = lbl.y;
+      } else { // top
+          yMin = lbl.y;
+          yMax = lbl.y + height;
+      }
+      
+      const box = { xMin, xMax, yMin, yMax };
+      
+      if (!checkCollision(box)) {
+          occupiedBoxes.push(box);
+          finalLabels.push(lbl);
+      }
+  }
+  
+  return finalLabels;
 }

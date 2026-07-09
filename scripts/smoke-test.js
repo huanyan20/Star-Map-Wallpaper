@@ -122,7 +122,33 @@ const server = http.createServer((request, response) => {
       console.error('Smoke test failed due to page errors.');
       process.exitCode = 1;
     } else {
-      console.log('Smoke test passed successfully.');
+      console.log('Smoke test passed successfully. Generating sunset screenshots...');
+      
+      // Setup viewport and lookAz
+      await page.setViewport({ width: 1280, height: 720 });
+      await page.evaluate(() => {
+        window.lookAz = 270 * Math.PI / 180;
+      });
+
+      const times = [
+        "2026-07-07T18:15:00", // Before sunset
+        "2026-07-07T18:35:00", // Sunset
+        "2026-07-07T18:45:00", // Dusk
+        "2026-07-07T19:05:00"  // After dusk
+      ];
+      
+      if (!fs.existsSync('screenshots')) fs.mkdirSync('screenshots');
+
+      for (let i = 0; i < times.length; i++) {
+        await page.evaluate((t) => {
+          window.nowOverride = new Date(t);
+        }, times[i]);
+        await new Promise(r => setTimeout(r, 800)); // wait for render
+        const p = `screenshots/sunset_${i}.png`;
+        await page.screenshot({ path: p });
+        console.log(`Saved screenshot ${p} for time ${times[i]}`);
+      }
+
     }
   } catch (e) {
     console.log('TEST ERROR:', e.message);

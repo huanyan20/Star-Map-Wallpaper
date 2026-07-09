@@ -39,6 +39,15 @@ window.bloomCfg = {
   strength:  0.75,   // additive bloom brightness multiplier
 };
 
+// ── Layered Bloom Weights (Multipliers) ─────────────────────────────────────
+window.bloomLayers = {
+  sun: 2.5,        // HDR multiplier for opaque sun
+  moon: 1.2,       // HDR multiplier for opaque moon
+  brightStar: 1.5, // Alpha multiplier for bright stars
+  nebula: 1.2,     // Alpha multiplier for nebulas
+  milkyway: 0.8    // Alpha multiplier for milky way
+};
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 function makeRT(w, h, type) {
@@ -100,12 +109,24 @@ export function setupBloom(width, height) {
       uniform float uThreshold;
       varying vec2 vUv;
       void main() {
-        vec3 c = texture2D(tScene, vUv).rgb;
+        vec4 tex = texture2D(tScene, vUv);
+        vec3 c = tex.rgb;
+        // tex.a contains the accumulated Bloom Weight (Layered Bloom alpha)
+        float bloomWeight = max(1.0, tex.a * 1.5);
+        
         // Perceptual luminance
         float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        
+        // Alpha Layered Bloom: effective luminance is boosted by the bloom weight.
+        // This makes objects with high alpha (like bright stars) bloom stronger
+        // without affecting the threshold of the background sky.
+        float effectiveLum = lum * bloomWeight;
+        
         // Smooth ramp above threshold so there's no hard jump
-        float extract = smoothstep(uThreshold, uThreshold + 0.10, lum);
-        gl_FragColor = vec4(c * extract * 0.75, 1.0);
+        float extract = smoothstep(uThreshold, uThreshold + 0.10, effectiveLum);
+        
+        // Output RGB scaled by extraction and the bloom weight
+        gl_FragColor = vec4(c * extract * 0.75 * bloomWeight, 1.0);
       }
     `,
     depthTest: false, depthWrite: false,
@@ -184,7 +205,13 @@ export function setupBloom(width, height) {
         vec3 bloom = texture2D(tBloom, vUv).rgb;
         vec3 hdr = scene + bloom * uStrength;
         vec3 ldr = ACESFilm(hdr * 0.88);
-        gl_FragColor = vec4(linearToSRGB(ldr), 1.0);
+        
+        vec3 srgb = linearToSRGB(ldr);
+        // Screen-space dithering to fix color banding on 8-bit monitors
+        float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        srgb += (dither - 0.5) / 255.0;
+        
+        gl_FragColor = vec4(srgb, 1.0);
       }
     `,
     depthTest: false, depthWrite: false,

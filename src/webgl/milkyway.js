@@ -38,6 +38,7 @@ export function setupMilkyWay(scene) {
       varying float vAlpha;
       varying float vPtRatio;  // paddedSize / renderSize — rescales padded UV back
       varying vec3 vGlowTint;
+      uniform float uBloomLayerMilkyWay;
       void main() {
         // Gaussian falloff — no hard boundary, neighbouring particles blend naturally.
         // vPtRatio maps the padded gl_PointCoord back to the true mathematical radius
@@ -47,7 +48,7 @@ export function setupMilkyWay(scene) {
         float a = exp(-r2 * 8.0); // tune: larger = tighter falloff
         vec3 mutedColor = mix(vColor, vec3(dot(vColor, vec3(0.299, 0.587, 0.114))), 0.35);
         vec3 tintedColor = mutedColor * vGlowTint;
-        gl_FragColor = vec4(tintedColor * a, vAlpha * a);
+        gl_FragColor = vec4(tintedColor * a, vAlpha * a * uBloomLayerMilkyWay);
       }
     `;
 
@@ -136,7 +137,8 @@ export function setupMilkyWay(scene) {
         lookEl: { value: 0 },
         focalLen: { value: 500 },
         time: { value: 0 },
-        dpr: { value: 1.0 }
+        dpr: { value: 1.0 },
+        uBloomLayerMilkyWay: { value: window.bloomLayers ? window.bloomLayers.milkyway : 0.8 }
       },
       transparent: true,
       depthWrite: false,
@@ -312,6 +314,7 @@ export function setupMilkyWayGlow(scene) {
   const fragmentShader = `
     uniform sampler2D tDiffuse;
     uniform float     starVisibility;
+    uniform float     uBloomLayerMilkyWay;
     varying vec2      vUv;
     varying float     vHorizonFade;
     varying vec3      vGlowTint;
@@ -324,7 +327,7 @@ export function setupMilkyWayGlow(scene) {
       // 0.12 keeps the glow layer subtle — particles provide the detail on top
       float alpha = lum * vHorizonFade * starVisibility * 0.12;
       vec3 tintedColor = texColor.rgb * vGlowTint;
-      gl_FragColor = vec4(tintedColor * alpha, alpha);
+      gl_FragColor = vec4(tintedColor * alpha, alpha * uBloomLayerMilkyWay);
     }
   `;
 
@@ -343,6 +346,7 @@ export function setupMilkyWayGlow(scene) {
       focalLen:       { value: 500 },
       time:           { value: 0 },
       dpr:            { value: 1.0 },
+      uBloomLayerMilkyWay: { value: window.bloomLayers ? window.bloomLayers.milkyway : 0.8 },
     },
     transparent: true,
     depthWrite:  false,

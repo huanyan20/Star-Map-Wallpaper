@@ -1,7 +1,9 @@
 import { toRad } from '../vendor/astronomy_engine.js';
 import { state } from '../core/state.js';
+import { skyRuntime } from '../core/runtime.js';
 
 export function initUI() {
+  const runtime = skyRuntime;
   window.onerror = function (msg, src, lineno, colno, error) {
     const errDiv = document.createElement('div');
     errDiv.style.position = 'absolute';
@@ -33,7 +35,7 @@ export function initUI() {
     document.body.appendChild(errDiv);
   });
 
-  window.toggles = {
+  runtime.set('toggles', {
     atmosphere: true,
     constellations: false,
     conNames: false,
@@ -43,15 +45,15 @@ export function initUI() {
     equatorial: false,
     ecliptic: false,
     bloom: false,
-  };
+  });
   function bindToggle(id, key) {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', () => {
-      window.toggles[key] = !window.toggles[key];
+      runtime.get('toggles')[key] = !runtime.get('toggles')[key];
       el.classList.toggle('active');
-      if (key === 'bloom' && window.bloomCfg) {
-        window.bloomCfg.enabled = window.toggles.bloom;
+      if (key === 'bloom' && runtime.get('bloomCfg')) {
+        runtime.get('bloomCfg').enabled = runtime.get('toggles').bloom;
       }
     });
   }
@@ -90,11 +92,11 @@ export function initUI() {
     const k = e.key.toLowerCase();
     if (keyMap[k]) {
       const key = keyMap[k];
-      window.toggles[key] = !window.toggles[key];
+      runtime.get('toggles')[key] = !runtime.get('toggles')[key];
       const btn = document.getElementById(btnMap[key]);
-      if (btn) btn.classList.toggle('active', window.toggles[key]);
-      if (key === 'bloom' && window.bloomCfg) {
-        window.bloomCfg.enabled = window.toggles.bloom;
+      if (btn) btn.classList.toggle('active', runtime.get('toggles')[key]);
+      if (key === 'bloom' && runtime.get('bloomCfg')) {
+        runtime.get('bloomCfg').enabled = runtime.get('toggles').bloom;
       }
     } else if (k === 'r') {
       state.lookAz = Math.PI;
@@ -178,4 +180,4 @@ export function updateClock(now) {
   if (td) td.textContent = hh + ':' + mm + ':' + ss;
   if (dd) dd.textContent = now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日';
 }
-window.updateClock = updateClock;
+skyRuntime.set('updateClock', updateClock);

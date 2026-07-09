@@ -1,9 +1,12 @@
 import * as THREE from 'three';
+import { skyRuntime } from '../core/runtime.js';
 import skyFragmentShader from '../shaders/skyFragment.frag.glsl';
 import skyVertexShader from '../shaders/skyVertex.vert.glsl';
 
+const runtime = skyRuntime;
+
 async function initWebGL() {
-  const [starCatalog, labelFont] = await Promise.all([window.loadStarCatalog(), window.loadLabelFont()]);
+  const [starCatalog, labelFont] = await Promise.all([runtime.get('loadStarCatalog')(), runtime.get('loadLabelFont')()]);
   const webglCanvas = document.createElement('canvas');
   webglCanvas.id = 'webgl-canvas';
   webglCanvas.style.position = 'absolute';
@@ -19,57 +22,57 @@ async function initWebGL() {
   canvas2d.style.background = 'transparent';
   canvas2d.parentElement.insertBefore(webglCanvas, canvas2d);
 
-  window.renderer = new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true, alpha: true });
-  window.renderer.setSize(window.innerWidth, window.innerHeight);
-  window.renderer.setPixelRatio(window.RENDER_DPR || Math.min(window.devicePixelRatio || 1, 1.5));
+  runtime.set('renderer', new THREE.WebGLRenderer({ canvas: webglCanvas, antialias: true, alpha: true }));
+  runtime.get('renderer').setSize(window.innerWidth, window.innerHeight);
+  runtime.get('renderer').setPixelRatio(runtime.get('RENDER_DPR') || Math.min(window.devicePixelRatio || 1, 1.5));
   // Bloom pipeline — must come right after renderer so RTs match its output size
-  if (window.setupBloom) window.setupBloom(window.innerWidth, window.innerHeight);
+  if (runtime.get('setupBloom')) runtime.get('setupBloom')(window.innerWidth, window.innerHeight);
 
-  window.renderer.toneMapping = THREE.NoToneMapping;
-  window.renderer.outputColorSpace = THREE.SRGBColorSpace;
+  runtime.get('renderer').toneMapping = THREE.NoToneMapping;
+  runtime.get('renderer').outputColorSpace = THREE.SRGBColorSpace;
 
   window.addEventListener('resize', () => {
-    window.renderer.setSize(window.innerWidth, window.innerHeight);
-    window.renderer.setPixelRatio(window.RENDER_DPR || Math.min(window.devicePixelRatio || 1, 1.5));
-    if (window.resizeBloom) window.resizeBloom(window.innerWidth, window.innerHeight);
-    window.camera.left = -window.innerWidth / 2;
-    window.camera.right = window.innerWidth / 2;
-    window.camera.top = window.innerHeight / 2;
-    window.camera.bottom = -window.innerHeight / 2;
-    window.camera.updateProjectionMatrix();
-    if (window.updateSkyGeometry) window.updateSkyGeometry();
-    if (window.skyMaterial && window.skyMaterial.uniforms.resolution) {
-      window.skyMaterial.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+    runtime.get('renderer').setSize(window.innerWidth, window.innerHeight);
+    runtime.get('renderer').setPixelRatio(runtime.get('RENDER_DPR') || Math.min(window.devicePixelRatio || 1, 1.5));
+    if (runtime.get('resizeBloom')) runtime.get('resizeBloom')(window.innerWidth, window.innerHeight);
+    runtime.get('camera').left = -window.innerWidth / 2;
+    runtime.get('camera').right = window.innerWidth / 2;
+    runtime.get('camera').top = window.innerHeight / 2;
+    runtime.get('camera').bottom = -window.innerHeight / 2;
+    runtime.get('camera').updateProjectionMatrix();
+    if (runtime.get('updateSkyGeometry')) runtime.get('updateSkyGeometry')();
+    if (runtime.get('skyMaterial') && runtime.get('skyMaterial').uniforms.resolution) {
+      runtime.get('skyMaterial').uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
     }
-    if (window.oceanMaterial && window.oceanMaterial.uniforms.resolution) {
-      window.oceanMaterial.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+    if (runtime.get('oceanMaterial') && runtime.get('oceanMaterial').uniforms.resolution) {
+      runtime.get('oceanMaterial').uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
     }
   });
 
-  window.scene = new THREE.Scene();
+  runtime.set('scene', new THREE.Scene());
 
-  window.camera = new THREE.OrthographicCamera(
+  runtime.set('camera', new THREE.OrthographicCamera(
     -window.innerWidth / 2,
     window.innerWidth / 2,
     window.innerHeight / 2,
     -window.innerHeight / 2,
     0.1,
     1000
-  );
-  window.camera.position.z = 100;
+  ));
+  runtime.get('camera').position.z = 100;
 
-  if (window.setupShaders) window.setupShaders();
-  if (window.setupStars) window.setupStars(starCatalog);
-  if (window.setupGrids) window.setupGrids();
-  if (window.setupLabelLayer) window.setupLabelLayer(labelFont);
-  if (window.setupOcean) window.setupOcean();
-  if (window.setupSun) window.setupSun();
-  if (window.setupMoon) window.setupMoon();
-  if (window.setupMilkyWayGlow) window.setupMilkyWayGlow(window.scene);
-  if (window.setupMilkyWay) window.setupMilkyWay(window.scene);
-  if (window.setupNebulas) window.setupNebulas(window.scene);
+  if (runtime.get('setupShaders')) runtime.get('setupShaders')();
+  if (runtime.get('setupStars')) runtime.get('setupStars')(starCatalog);
+  if (runtime.get('setupGrids')) runtime.get('setupGrids')();
+  if (runtime.get('setupLabelLayer')) runtime.get('setupLabelLayer')(labelFont);
+  if (runtime.get('setupOcean')) runtime.get('setupOcean')();
+  if (runtime.get('setupSun')) runtime.get('setupSun')();
+  if (runtime.get('setupMoon')) runtime.get('setupMoon')();
+  if (runtime.get('setupMilkyWayGlow')) runtime.get('setupMilkyWayGlow')(runtime.get('scene'));
+  if (runtime.get('setupMilkyWay')) runtime.get('setupMilkyWay')(runtime.get('scene'));
+  if (runtime.get('setupNebulas')) runtime.get('setupNebulas')(runtime.get('scene'));
 
-  window.skyMaterial = new THREE.ShaderMaterial({
+  runtime.set('skyMaterial', new THREE.ShaderMaterial({
     vertexShader: skyVertexShader,
     fragmentShader: skyFragmentShader,
     extensions: { derivatives: true },
@@ -92,17 +95,17 @@ async function initWebGL() {
     },
     depthWrite: false,
     transparent: true,
-  });
+  }));
 
-  window.skyW = window.innerWidth;
-  window.skyH = window.innerHeight;
-  const skyGeo = new THREE.PlaneGeometry(window.skyW, window.skyH);
-  window.skyMesh = new THREE.Mesh(skyGeo, window.skyMaterial);
-  window.skyMesh.frustumCulled = false;
-  window.skyMesh.position.z = -500;
-  window.skyMesh.renderOrder = -20;
-  window.scene.add(window.skyMesh);
+  runtime.set('skyW', window.innerWidth);
+  runtime.set('skyH', window.innerHeight);
+  const skyGeo = new THREE.PlaneGeometry(runtime.get('skyW'), runtime.get('skyH'));
+  runtime.set('skyMesh', new THREE.Mesh(skyGeo, runtime.get('skyMaterial')));
+  runtime.get('skyMesh').frustumCulled = false;
+  runtime.get('skyMesh').position.z = -500;
+  runtime.get('skyMesh').renderOrder = -20;
+  runtime.get('scene').add(runtime.get('skyMesh'));
 }
 
-window.initWebGL = initWebGL;
+runtime.set('initWebGL', initWebGL);
 

@@ -172,6 +172,7 @@ function setupShaders() {
         varying float vAirMass;
         varying vec2 vPosHash;
         varying float vPtRatio;
+        uniform float uBloomLayerBrightStar;
 
         float hash(vec2 p) {
             return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
@@ -196,30 +197,31 @@ function setupShaders() {
             
             // Chromatic Scintillation (Twinkling)
             // Higher airmass = more scintillation. Bright stars show more color shifts.
-            float twinkleAmp = min(0.2, 0.02 + 0.02 * vAirMass); // 整體降低閃爍幅度
-            float tNoise1 = noise(vPosHash, time);
-            float tNoise2 = noise(vPosHash + vec2(1.0), time * 1.1); // Slightly offset for color
+            float twinkleAmp = min(0.6, 0.02 + 0.05 * pow(vAirMass, 1.2)); // 大幅提升地平線閃爍幅度
+            float tNoise1 = noise(vPosHash, time * 1.5); // 稍微加快閃爍頻率
+            float tNoise2 = noise(vPosHash + vec2(1.0), time * 1.7); // Slightly offset for color
             float twinkle = 1.0 + twinkleAmp * tNoise1;
             
             // Subtle color shift for bright stars twinkling at low altitude
             vec3 twinkleColorShift = vec3(1.0);
-            if (vMag < 2.0 && vAirMass > 2.0) {
-                twinkleColorShift += vec3(tNoise2, -tNoise2 * 0.5, -tNoise2) * 0.3 * twinkleAmp;
+            if (vMag < 3.0 && vAirMass > 1.5) {
+                // 讓亮星在仰角較低時，閃爍時帶有明顯的色相偏移 (Blue-Red shift)
+                twinkleColorShift += vec3(tNoise2, -abs(tNoise2) * 0.5, -tNoise2) * 0.6 * twinkleAmp;
             }
             
             // Advanced Atmospheric Reddening (Extinction)
             // RGB wavelengths scatter differently (Rayleigh). Blue scatters most (larger coeff).
-            vec3 extinctionColor = exp(-vec3(0.10, 0.15, 0.25) * vAirMass);
+            // 修改 extinction 係數，讓地平線星星更明顯偏暖橘紅色
+            vec3 extinctionColor = exp(-vec3(0.12, 0.25, 0.45) * vAirMass);
             
             // Boost saturation to make star colors more distinguishable
             vec3 lumaBase = vec3(dot(vColor, vec3(0.299, 0.587, 0.114)));
-            vec3 saturatedColor = mix(lumaBase, vColor, 1.8); // Enhance color saturation
+            vec3 saturatedColor = mix(lumaBase, vColor, 2.2); // 更強的色彩飽和度
             
             vec3 finalColor = saturatedColor * extinctionColor * twinkleColorShift;
             
             // Purkinje Effect (Desaturation for dim stars)
             // Human eye rod cells don't see color for dim objects
-            // Adjusted threshold so colors are visible for more stars
             float desatFactor = smoothstep(2.0, 6.0, vMag); // Stars dimmer than mag 2 start losing color
             vec3 luma = vec3(dot(finalColor, vec3(0.299, 0.587, 0.114)));
             // Shift towards a slight bluish-grey (scotopic vision peak sensitivity)
@@ -227,35 +229,40 @@ function setupShaders() {
             finalColor = mix(finalColor, nightColor, desatFactor * 0.6); // Cap maximum desaturation at 60%
             
             // Stellarium-style Point Spread Function (PSF)
-            // 高光核心 (Highlight Core)
-            // 將衰減係數降低 (35.0 -> 22.0) 讓所有星星本體變「胖」，避免只佔不到一個像素而造成閃爍
             float core = exp(-r * 22.0) * 1.2;
             if (vMag < 2.0) {
-                // 縮小最亮星的額外核心光暈範圍 (18.0 -> 28.0)
                 core += exp(-r * 28.0) * clamp(2.0 - vMag, 0.0, 2.0) * 1.2; 
             }
             
             // 柔和邊緣 (Soft Halo) + 十字星芒 (Cross Lens Flare)
             float halo = 0.0;
             float flare = 0.0;
+            // 給亮星增加明顯的 Bloom 權重
+            float bloomWeight = 0.0; 
             if (vMag < 3.0) {
-                // 再進一步縮小所有亮星的光暈範圍 (80.0 -> 100.0, 60.0 -> 80.0)
                 float intensity = pow(clamp(3.0 - vMag, 0.0, 3.0), 1.2);
                 halo = exp(-r * 100.0) * 0.01 * intensity;
                 halo += exp(-r * 80.0) * 0.005 * intensity;
                 
                 // 十字星芒 (Lens Flare)
-                // 將星芒再稍微變粗 (75.0 -> 50.0)
                 float crossX = exp(-abs(pt.x) * 50.0) * exp(-abs(pt.y) * 8.0);
                 float crossY = exp(-abs(pt.y) * 50.0) * exp(-abs(pt.x) * 8.0);
                 flare = (crossX + crossY) * 0.25 * intensity;
+                
+                // 設定 bloomWeight，越亮的星權重越高，讓 Layered Bloom 抓取
+                bloomWeight = clamp((3.0 - vMag) * 0.8, 0.0, uBloomLayerBrightStar);
             }
             
             // Combine with distance to center mask
             float mask = 1.0 - smoothstep(0.45, 0.5, r);
             float alpha = (core + halo + flare) * vAlpha * twinkle * 1.8 * mask;
             
-            gl_FragColor = vec4(finalColor * alpha, alpha);
+            // RGB 輸出正確的光度，Alpha 輸出用於 Layered Bloom 的權重。
+            // 使用 max() 確保即使是很暗的星也不會把背景 Alpha 蓋掉，
+            // 這裡將 alpha (自身不透明度) 加上 bloomWeight (額外的 Bloom 觸發權重)
+            float finalAlpha = alpha + bloomWeight * mask * vAlpha;
+            
+            gl_FragColor = vec4(finalColor * alpha, finalAlpha);
         }
     `;
 
@@ -272,6 +279,8 @@ function setupShaders() {
       dpr: { value: window.devicePixelRatio || 1.0 },
       currentFov: { value: 3.14159 },
       chunkMaxFov: { value: 100.0 },
+      hFOV: { value: Math.PI / 2.0 },
+      uBloomLayerBrightStar: { value: window.bloomLayers ? window.bloomLayers.brightStar : 1.5 },
     },
     transparent: true,
     depthWrite: false,
@@ -344,6 +353,7 @@ function setupShaders() {
         uniform float starVisibility;
         uniform float centerFade;
         uniform float baseAlpha;
+        uniform float hFOV;
         
         void main() {
             if (vDepth < -0.4) discard;
@@ -363,7 +373,11 @@ function setupShaders() {
             float lineWidthPixels = 0.8;
             float alphaMask = 1.0 - smoothstep(max(0.0, lineWidthPixels - 0.75), lineWidthPixels + 0.75, pixel_dist);
             
-            float alpha = baseAlpha * starVisibility * alphaMask;
+            // FOV-aware grid fading
+            // When hFOV < 45 degrees (~0.78 rad), fade out grid lines to de-clutter view
+            float fovOpacity = smoothstep(0.4, 0.9, hFOV);
+            
+            float alpha = baseAlpha * starVisibility * alphaMask * fovOpacity;
             
             if (centerFade > 0.0) {
                 float fade = smoothstep(0.85, 0.98, vDepth);
@@ -520,6 +534,7 @@ function setupShaders() {
         lookEl: window.starsMaterial.uniforms.lookEl,
         focalLen: window.starsMaterial.uniforms.focalLen,
         starVisibility: window.starsMaterial.uniforms.starVisibility,
+        hFOV: window.starsMaterial.uniforms.hFOV,
         lineColor: { value: color },
         isHoriz: { value: isHorizVal },
         centerFade: { value: centerFadeVal },
@@ -546,6 +561,7 @@ window.setupMoon = function () {
         uniform float focalLen;
         uniform vec3 celestialPos;
         uniform vec3 sunPos;
+        uniform float uBloomLayerMoon;
         
         varying vec2 vUv;
         varying vec3 vLightDir;
@@ -616,6 +632,7 @@ window.setupMoon = function () {
 
   const moonFragmentShader = /* glsl */ `
         uniform sampler2D map;
+        uniform float uBloomLayerMoon;
         
         varying vec2 vUv;
         varying vec3 vLightDir;
@@ -689,6 +706,10 @@ window.setupMoon = function () {
             
             // 疊加月球本體與背後的月暈
             vec3 finalRGB = mix(haloColor * atmTint, bodyColor, bodyAlpha);
+            
+            // Layered Bloom: Boost HDR output
+            finalRGB *= uBloomLayerMoon;
+            
             float finalAlpha = max(haloAlpha, bodyAlpha);
             
             gl_FragColor = vec4(finalRGB, finalAlpha);
@@ -706,6 +727,7 @@ window.setupMoon = function () {
       focalLen: { value: 500 },
       celestialPos: { value: new THREE.Vector3() },
       sunPos: { value: new THREE.Vector3() },
+      uBloomLayerMoon: { value: window.bloomLayers ? window.bloomLayers.moon : 1.2 },
     },
     transparent: true,
     depthWrite: false,
@@ -785,6 +807,7 @@ window.setupSun = function () {
         uniform mat3 eqToHoriz; 
         uniform vec3 celestialPos; 
         uniform float atmosphereBlend;
+        uniform float uBloomLayerSun;
         
         varying vec2 vUv; 
  
@@ -852,6 +875,10 @@ window.setupSun = function () {
             // 確保核心維持高亮且有夕陽橘紅色彩，外側有柔和過渡
             vec3 finalColor = mix(haloColor, sunColor, core); 
             finalColor += haloColor * rays;
+            
+            // Layered Bloom: Boost HDR output
+            finalColor *= uBloomLayerSun;
+            
             float alpha = min(1.0, core + halo + rays);
             
             // 讓太陽本體(core)保持完全不透明(1.0)，讓光暈部分半透明，這樣才能看到清楚的太陽球體
@@ -875,6 +902,7 @@ window.setupSun = function () {
       celestialPos: { value: new THREE.Vector3() },
       time: { value: 0.0 },
       atmosphereBlend: { value: 1.0 },
+      uBloomLayerSun: { value: window.bloomLayers ? window.bloomLayers.sun : 2.5 },
     },
     transparent: true,
     depthWrite: false,

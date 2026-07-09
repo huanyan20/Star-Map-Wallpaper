@@ -4,6 +4,7 @@ import { state } from './core/state.js';
 import { toRad } from './vendor/astronomy_engine.js';
 import { getFrameState } from './core/frameState.js';
 import { loadAstronomicalData } from './bootstrap.js';
+import { skyRuntime } from './core/runtime.js';
 
 import {
   buildStarPositionCache,
@@ -22,13 +23,14 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 let W, H, CX, CY, R;
 
+const runtime = skyRuntime;
 const MAX_RENDER_DPR = 1.0;
 function getRenderDPR() {
-  return Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR);
+  return Math.min(runtime.get('devicePixelRatio') || 1, MAX_RENDER_DPR);
 }
 function resize() {
   const dpr = getRenderDPR();
-  window.RENDER_DPR = dpr;
+  runtime.set('RENDER_DPR', dpr);
   state.W = W = window.innerWidth;
   state.H = H = window.innerHeight;
   canvas.width = Math.round(W * dpr);
@@ -172,7 +174,8 @@ function render(ts) {
     framesCounted = 0;
     lastFPSTime = ts;
   }
-  const now = new Date();
+  // 允許開發階段從 DevTools 覆寫時間以方便測試夕陽
+  const now = runtime.get('nowOverride') || new Date();
 
   // 1. Generate single frame state
   const fState = getFrameState(ts, now);
@@ -180,11 +183,11 @@ function render(ts) {
   const { lst_deg, sunAltAz, sunAlt_deg, starVisibility, atmosphereEnabled } = fState;
 
   if (ts - lastClockT > 200) {
-    if (window.updateClock) window.updateClock(now);
+    if (runtime.get('updateClock')) runtime.get('updateClock')(now);
     lastClockT = ts;
   }
 
-  if (window.updateCamCache) window.updateCamCache();
+  if (runtime.get('updateCamCache')) runtime.get('updateCamCache')();
   buildStarPositionCache(lst_deg, state);
 
   drawBackground(ctx, fState, W, H);
@@ -193,9 +196,9 @@ function render(ts) {
   const webglLabels = buildWebGLLabels(lst_deg, starVisibility, state, CX, CY, W, H);
 
   // 2. Render WebGL layer
-  if (window.updateStarLOD) window.updateStarLOD(state.hFOV);
-  if (window.renderWebGL) {
-    window.renderWebGL(fState, H, []);
+  if (runtime.get('updateStarLOD')) runtime.get('updateStarLOD')(state.hFOV);
+  if (runtime.get('renderWebGL')) {
+    runtime.get('renderWebGL')(fState, H, []);
   }
 
   // Render crisp native labels on 2D Canvas overlay
@@ -206,7 +209,7 @@ function render(ts) {
   }
 
   if (starVisibility > 0) {
-    if (window.toggles.milkyway && window.drawMilkyWay) window.drawMilkyWay(lst_deg);
+    if (runtime.get('toggles')?.milkyway && runtime.get('drawMilkyWay')) runtime.get('drawMilkyWay')(lst_deg);
     drawEntities(ctx);
   }
 
@@ -216,7 +219,7 @@ function render(ts) {
 async function start() {
   try {
     await loadAstronomicalData();
-    if (window.initWebGL) await window.initWebGL();
+    if (runtime.get('initWebGL')) await runtime.get('initWebGL')();
     scheduleRender();
   } catch (err) {
     console.error(err);

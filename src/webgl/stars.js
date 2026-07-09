@@ -5,6 +5,10 @@ import { setupConstellationLines } from './stars/constellationLines.js';
 import { registerAdditiveSkyMaterial } from './additiveSkyMaterial.js';
 import { state } from '../core/state.js';
 
+const _lookDirHoriz = new THREE.Vector3();
+const _lookDirEq = new THREE.Vector3();
+const _horizToEq = new THREE.Matrix3();
+
 async function loadStarCatalog() {
   fetchChunksMeta();
   if (window.starCatalogPromise) return window.starCatalogPromise;
@@ -119,27 +123,17 @@ async function loadStarChunk(url) {
 window.updateStarLOD = function (hFOV) {
   if (!window.scene || !window.starsMaterial) return;
 
-  const mats = [window.starsMaterial];
-  for (const chunk of window.STAR_CHUNKS) {
-    if (chunk.loaded && chunk.pointsMesh && chunk.pointsMesh.material) {
-      mats.push(chunk.pointsMesh.material);
-    }
-  }
-  for (const mat of mats) {
-    if (mat.uniforms.currentFov) mat.uniforms.currentFov.value = window.hFOV;
-  }
-
   const lookAz = window.starsMaterial.uniforms.lookAz.value;
   const lookEl = window.starsMaterial.uniforms.lookEl.value;
   const lx = Math.sin(lookAz) * Math.cos(lookEl);
   const ly = Math.cos(lookAz) * Math.cos(lookEl);
   const lz = Math.sin(lookEl);
-  const lookDirHoriz = new THREE.Vector3(lx, ly, lz);
+  _lookDirHoriz.set(lx, ly, lz);
   
   // Transform look vector from Horizontal to Equatorial to match chunk centers
   const eqToHoriz = window.starsMaterial.uniforms.eqToHoriz.value;
-  const horizToEq = eqToHoriz.clone().transpose();
-  const lookDirEq = lookDirHoriz.applyMatrix3(horizToEq);
+  _horizToEq.copy(eqToHoriz).transpose();
+  _lookDirEq.copy(_lookDirHoriz).applyMatrix3(_horizToEq);
 
   const aspect = window.innerHeight / window.innerWidth;
   const diagFov = window.hFOV * Math.sqrt(1 + aspect * aspect);
@@ -153,7 +147,7 @@ window.updateStarLOD = function (hFOV) {
     
     let visible = false;
     if (fovOk && !isIdle) {
-      const dot = lookDirEq.dot(chunk.center);
+      const dot = _lookDirEq.dot(chunk.center);
       const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
       if (angle <= cameraRadius + chunk.radiusAngle) {
         visible = true;

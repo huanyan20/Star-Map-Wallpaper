@@ -1,6 +1,8 @@
-window.lookAz = Math.PI; // direction looking: 0=N, π=S (radians)
-window.lookEl = 15 * Math.PI / 180; // toRad(15)
-window.hFOV = 90 * Math.PI / 180; // toRad(90)
+import { skyRuntime } from './runtime.js';
+
+skyRuntime.set('lookAz', Math.PI); // direction looking: 0=N, π=S (radians)
+skyRuntime.set('lookEl', 15 * Math.PI / 180); // toRad(15)
+skyRuntime.set('hFOV', 90 * Math.PI / 180); // toRad(90)
 
 export const state = {
   W: window.innerWidth,
@@ -23,14 +25,14 @@ export const state = {
   lastTD: null,
   lastInteractionTime: performance.now(),
   
-  get lookAz() { return window.lookAz; },
-  set lookAz(v) { window.lookAz = v; },
-  get lookEl() { return window.lookEl; },
-  set lookEl(v) { window.lookEl = v; },
-  get hFOV() { return window.hFOV; },
-  set hFOV(v) { window.hFOV = v; },
-  get toggles() { return window.toggles; },
-  set toggles(v) { window.toggles = v; }
+  get lookAz() { return skyRuntime.get('lookAz'); },
+  set lookAz(v) { skyRuntime.set('lookAz', v); },
+  get lookEl() { return skyRuntime.get('lookEl'); },
+  set lookEl(v) { skyRuntime.set('lookEl', v); },
+  get hFOV() { return skyRuntime.get('hFOV'); },
+  set hFOV(v) { skyRuntime.set('hFOV', v); },
+  get toggles() { return skyRuntime.get('toggles'); },
+  set toggles(v) { skyRuntime.set('toggles', v); }
 };
 
-window.spatialHash = state.spatialHash;
+skyRuntime.set('spatialHash', state.spatialHash);
